@@ -61,25 +61,21 @@ export function DashboardScreen({ employer, scenario, result, classifiedClaims,
 
   return (
     <div>
-      <div className="flex items-end justify-between mb-8">
+      <div className="flex items-end justify-between mb-6">
         <div>
           <h1 className="font-display text-5xl text-stone-900 leading-none mb-2">Reclassification</h1>
           <p className="text-stone-600 max-w-2xl">
             What used to be claims, repositioned under the OffPlan model.
           </p>
         </div>
-        <div className="text-right space-y-2">
-          <div>
-            <div className="text-[10px] uppercase tracking-wider text-stone-500">Active Scenario</div>
-            <div className="font-display text-2xl">{scenario.name}</div>
+        {inputModeRecord && (
+          <div className="flex justify-end">
+            <InputModeBadge inputModeRecord={inputModeRecord} inline />
           </div>
-          {inputModeRecord && (
-            <div className="flex justify-end">
-              <InputModeBadge inputModeRecord={inputModeRecord} inline />
-            </div>
-          )}
-        </div>
+        )}
       </div>
+
+      <ScenarioToggle scenario={scenario} onScenarioChange={onScenarioChange} />
 
       <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4 text-sm text-amber-900">
         <div className="flex gap-2">
@@ -310,6 +306,42 @@ export function DashboardScreen({ employer, scenario, result, classifiedClaims,
           scenario={scenario}
           claims={classifiedClaims}
         />
+      </div>
+    </div>
+  );
+}
+
+function ScenarioToggle({ scenario, onScenarioChange }) {
+  const activeKey = Object.entries(SCENARIO_PRESETS).find(([, p]) => p.name === scenario.name)?.[0];
+  const activeDescription = SCENARIO_PRESETS[activeKey]?.description;
+  return (
+    <div className="bg-white border border-stone-200 rounded-lg p-4 mb-6">
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-3">
+          <span className="text-[10px] uppercase tracking-[0.18em] text-stone-500 font-semibold">Featured Scenario</span>
+          <div className="flex border border-stone-200 rounded overflow-hidden">
+            {Object.entries(SCENARIO_PRESETS).map(([key, p], i, arr) => (
+              <button
+                key={key}
+                onClick={() => onScenarioChange({ ...p })}
+                className={`px-4 h-9 text-sm font-medium transition ${
+                  i < arr.length - 1 ? "border-r border-stone-200" : ""
+                } ${
+                  scenario.name === p.name
+                    ? "bg-stone-900 text-white"
+                    : "bg-white text-stone-700 hover:bg-stone-50"
+                }`}
+              >
+                {p.name}
+              </button>
+            ))}
+          </div>
+        </div>
+        {activeDescription && (
+          <div className="text-xs text-stone-500 italic max-w-md text-right">
+            {activeDescription}
+          </div>
+        )}
       </div>
     </div>
   );
