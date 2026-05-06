@@ -1,0 +1,4 @@
+employer_name,employer_id,state,industry,employees,covered_lives,current_total_healthcare_spend,current_funding_model,historical_claims_estimate,renewal_date,broker_name,benchmark_profile,notes
+ABC Manufacturing,ABC123,GA,Manufacturing,75,162,1187450,fully_insured,950000,2026-01-01,Smith Benefits,manufacturing_southeast,Quote stage; no claims access yet
+XYZ Construction,XYZ456,FL,Construction,42,98,612000,level_funded,540000,2026-04-01,Coastal Risk,construction_southeast,Bonded contractor benchmark
+Riverdale Hospitality Group,RHG789,TX,Hospitality,128,205,1340000,fully_insured,1080000,2026-07-01,Lone Star Benefits,hospitality_high_turnover,Heavy turnover; expect high primary care utilization

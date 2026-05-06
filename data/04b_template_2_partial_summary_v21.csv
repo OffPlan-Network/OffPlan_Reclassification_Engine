@@ -1,0 +1,9 @@
+employer_id,claims_category,annual_spend,covered_lives,chronic_prevalence_pct,data_source,confidence_level,period_start,period_end,claim_count,notes
+ABC123,Primary Care,82000,162,18,broker_report,medium,2025-01-01,2025-12-31,612,From 2025 broker renewal packet
+ABC123,Specialty Care,156000,162,18,broker_report,medium,2025-01-01,2025-12-31,284,Endocrinology cardiology dermatology
+ABC123,Imaging,94000,162,18,broker_report,high,2025-01-01,2025-12-31,72,Confirmed against carrier large-claim report
+ABC123,Lab,28000,162,18,broker_report,medium,2025-01-01,2025-12-31,398,
+ABC123,Procedures,73000,162,18,broker_report,medium,2025-01-01,2025-12-31,42,
+ABC123,ER,46000,162,18,broker_report,high,2025-01-01,2025-12-31,28,
+ABC123,Inpatient,295000,162,18,carrier_summary,high,2025-01-01,2025-12-31,12,Two large admits in Q3
+ABC123,Pharmacy,118000,162,18,pbm_report,high,2025-01-01,2025-12-31,1842,Includes specialty Rx
