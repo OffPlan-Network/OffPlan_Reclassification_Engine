@@ -1,8 +1,11 @@
 import { fmtUSD, fmtPct } from '../ui/formatters.js';
 
 // Mandatory cascade order: DPC → Repricing → Indemnity → Stop-loss → Residual
+// Claims flagged `excluded` are dropped before the cascade — they don't show
+// up in historical_claims, savings, or any aggregate.
 export function runCalculation(claims, scenario, cashPrices, indemnityBenefits, repriceFactors) {
-  const modeled = claims.map((c) => {
+  const active = claims.filter((c) => !c.excluded);
+  const modeled = active.map((c) => {
     const result = {
       ...c,
       modeled_cost: 0,

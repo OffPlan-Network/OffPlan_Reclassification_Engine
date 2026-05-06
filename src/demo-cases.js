@@ -3,7 +3,8 @@
 // can see the full classification cascade without needing real claims.
 //
 // Loader kinds (interpreted by App.jsx → loadDemoCase):
-//   - "synthetic_full":    use the synthetic generator, label as Mode 1
+//   - "json_full":         fetch a frozen JSON claim file (Mode 1, deterministic)
+//   - "synthetic_full":    use the synthetic generator at runtime (RNG-driven)
 //   - "csv_partial":       fetch a partial-summary CSV from /data/
 //   - "rows_partial":      inline partial-summary rows
 //   - "modeled":           use the synthetic generator, Mode 3 / low confidence
@@ -35,7 +36,7 @@ export const DEMO_CASES = [
       claims_period_end: "2025-12-31",
       plan_type: "Self Funded",
     },
-    loader: { kind: "synthetic_full", lives: 162, spend: 950000 },
+    loader: { kind: "json_full", url: "./data/demo_abc_manufacturing_claims.json" },
     scenario: "expected",
     destination: "dashboard",
   },
@@ -108,7 +109,13 @@ export const DEMO_CASES = [
       claims_period_end: "2025-12-31",
       plan_type: "Fully Insured",
     },
-    loader: { kind: "modeled", lives: 205, spend: 1080000 },
+    loader: {
+      kind: "json_full",
+      url: "./data/demo_riverdale_hospitality_claims.json",
+      mode: "modeled",
+      confidence: "low",
+      data_source: "benchmark",
+    },
     scenario: "aggressive",
     destination: "dashboard",
   },

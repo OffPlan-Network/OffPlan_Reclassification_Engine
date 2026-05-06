@@ -276,7 +276,28 @@ export default function App() {
       let parsed = [];
       let meta = {};
 
-      if (loader.kind === "synthetic_full") {
+      if (loader.kind === "json_full") {
+        // Frozen pre-rendered claim file. Deterministic across loads.
+        let claimsData = [];
+        try {
+          const resp = await fetch(loader.url, { cache: "no-store" });
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          claimsData = await resp.json();
+          if (!Array.isArray(claimsData)) throw new Error("expected array");
+        } catch (err) {
+          showToast(`Couldn't load demo claims: ${err.message}`, "error");
+          setLoading(false);
+          return;
+        }
+        parsed = claimsData;
+        meta = {
+          mode: loader.mode || "full",
+          file_name: `[demo] ${loader.url.split("/").pop()}`,
+          data_source: loader.data_source || "claims_extract",
+          confidence: loader.confidence || "high",
+          confidence_override: null,
+        };
+      } else if (loader.kind === "synthetic_full") {
         const { claims: synth, meta: synthMeta } = generateSyntheticClaims(
           Number(loader.lives) || Number(employer.covered_lives) || 100,
           Number(loader.spend) || Number(employer.historical_claims_spend) || 500000
@@ -461,19 +482,37 @@ export default function App() {
         {screen === SCREENS.CLASSIFY && (
           <ClassifyScreen
             claims={classifiedClaims}
-            onUpdateClaim={async (claim_id, updates, reason) => {
-              const next = classifiedClaims.map((c) =>
-                c.claim_id === claim_id
-                  ? { ...c, ...updates, manual_override: true, override_reason: reason || c.override_reason || "User reclassification" }
-                  : c);
+            onUpdateClaim={async (claim_id, updates, reason, kind = "bucket") => {
+              const before = classifiedClaims.find((c) => c.claim_id === claim_id);
+              const next = classifiedClaims.map((c) => {
+                if (c.claim_id !== claim_id) return c;
+                if (kind === "exclude") {
+                  return { ...c, ...updates, exclude_reason: reason || c.exclude_reason || "User-excluded from analysis" };
+                }
+                return { ...c, ...updates, manual_override: true, override_reason: reason || c.override_reason || "User reclassification" };
+              });
               await saveClaims(next);
               await writeAudit({
                 action: "update",
-                entity_type: "manual_override",
+                entity_type: kind === "exclude" ? "claim_inclusion" : "manual_override",
                 entity_id: claim_id,
-                before_state: classifiedClaims.find((c) => c.claim_id === claim_id),
+                before_state: before,
                 after_state: next.find((c) => c.claim_id === claim_id),
-                change_reason: reason || "Manual claim reclassification",
+                change_reason: reason || (kind === "exclude" ? "Toggle inclusion" : "Manual claim reclassification"),
+              });
+            }}
+            onBulkUpdate={async (claim_ids, updates, reason) => {
+              const idSet = new Set(claim_ids);
+              const next = classifiedClaims.map((c) =>
+                idSet.has(c.claim_id) ? { ...c, ...updates } : c);
+              await saveClaims(next);
+              await writeAudit({
+                action: "bulk_update",
+                entity_type: "claim_inclusion",
+                entity_id: `${claim_ids.length} claims`,
+                before_state: null,
+                after_state: null,
+                change_reason: reason || `Bulk update on ${claim_ids.length} claims`,
               });
             }}
           />
