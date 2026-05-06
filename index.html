@@ -3,7 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OffPlan Reclassification Engine - Prototype</title>
+<title>OffPlan Reclassification Engine · Demo</title>
+<meta name="description" content="OffPlan Claims Reclassification Engine — interactive static demo of the five-stage cascade (DPC eliminated, cash-pay repriced, indemnity offset, stop-loss shifted, residual funded).">
+<meta name="robots" content="noindex,nofollow">
 
 <!-- Tailwind CSS -->
 <script src="https://cdn.tailwindcss.com"></script>
@@ -24,10 +26,18 @@
 <link rel="stylesheet" href="./styles/main.css">
 </head>
 <body class="bg-stone-50">
+<noscript>
+  <div style="padding:2rem;font-family:system-ui,sans-serif;max-width:42rem;margin:2rem auto;border:1px solid #e7e5e4;border-radius:8px;background:#fff;">
+    <h1 style="margin:0 0 .5rem 0;font-size:1.25rem;">JavaScript required</h1>
+    <p style="margin:0;color:#57534e;">The OffPlan Reclassification Engine demo is a single-page React application. Please enable JavaScript to view it.</p>
+  </div>
+</noscript>
+
 <div id="root"></div>
 
-<!-- Lucide icon component wrappers - turns lucide into React components matching the lucide-react API -->
+<!-- App constants, demo cases, and main app bundle -->
 <script src="./js/constants.js"></script>
+<script src="./js/demo-cases.js"></script>
 <script type="text/babel" data-presets="env,react" src="./js/app.jsx"></script>
 
 </body>

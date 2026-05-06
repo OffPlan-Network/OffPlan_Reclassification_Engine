@@ -1,0 +1,55 @@
+name: Deploy static site to GitHub Pages
+
+on:
+  push:
+    branches: [master, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Stage site contents
+        run: |
+          set -euo pipefail
+          mkdir -p _site
+          # Files & folders that make up the deployable static site.
+          # Anything not listed here (docs/*.docx, *.zip, *.jsx reference
+          # implementation, etc.) is intentionally excluded from publish.
+          cp index.html _site/
+          touch _site/.nojekyll
+          mkdir -p _site/js _site/styles _site/data
+          cp js/*.js js/*.jsx _site/js/ 2>/dev/null || true
+          cp styles/*.css _site/styles/
+          cp data/*.csv _site/data/
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

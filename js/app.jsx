@@ -55,13 +55,75 @@ const MapPin = makeLucideIcon("MapPin");
 const Target = makeLucideIcon("Target");
 const Edit3 = makeLucideIcon("Edit3");
 
-// In-memory storage shim (replaces window.storage which is Claude Artifact-only)
+// Storage shim — Claude Artifacts shipped a window.storage API. For the static
+// GitHub Pages demo, persist to localStorage under a namespaced prefix so user
+// state survives reloads. Falls back to in-memory if localStorage is unavailable
+// (private browsing, sandboxed iframe, etc.).
+const STORAGE_NAMESPACE = "offplan_engine:";
+const _hasLocalStorage = (() => {
+  try {
+    const k = `${STORAGE_NAMESPACE}__probe__`;
+    window.localStorage.setItem(k, "1");
+    window.localStorage.removeItem(k);
+    return true;
+  } catch { return false; }
+})();
+const _memStore = {};
+
 window.storage = {
-  _store: {},
-  async get(key) { return this._store[key] !== undefined ? { key, value: this._store[key], shared: false } : null; },
-  async set(key, value) { this._store[key] = value; return { key, value, shared: false }; },
-  async delete(key) { delete this._store[key]; return { key, deleted: true, shared: false }; },
-  async list(prefix = "") { return { keys: Object.keys(this._store).filter(k => k.startsWith(prefix)), prefix, shared: false }; },
+  _ns(key) { return STORAGE_NAMESPACE + key; },
+  async get(key) {
+    try {
+      if (_hasLocalStorage) {
+        const raw = window.localStorage.getItem(this._ns(key));
+        if (raw === null || raw === undefined) return null;
+        return { key, value: raw, shared: false };
+      }
+      return _memStore[key] !== undefined ? { key, value: _memStore[key], shared: false } : null;
+    } catch { return null; }
+  },
+  async set(key, value) {
+    try {
+      if (_hasLocalStorage) window.localStorage.setItem(this._ns(key), value);
+      else _memStore[key] = value;
+    } catch { _memStore[key] = value; }
+    return { key, value, shared: false };
+  },
+  async delete(key) {
+    try {
+      if (_hasLocalStorage) window.localStorage.removeItem(this._ns(key));
+      delete _memStore[key];
+    } catch { delete _memStore[key]; }
+    return { key, deleted: true, shared: false };
+  },
+  async list(prefix = "") {
+    try {
+      if (_hasLocalStorage) {
+        const full = this._ns(prefix);
+        const keys = [];
+        for (let i = 0; i < window.localStorage.length; i++) {
+          const k = window.localStorage.key(i);
+          if (k && k.startsWith(full)) keys.push(k.slice(STORAGE_NAMESPACE.length));
+        }
+        return { keys, prefix, shared: false };
+      }
+      return { keys: Object.keys(_memStore).filter((k) => k.startsWith(prefix)), prefix, shared: false };
+    } catch { return { keys: [], prefix, shared: false }; }
+  },
+  async clearAll() {
+    try {
+      if (_hasLocalStorage) {
+        const toRemove = [];
+        for (let i = 0; i < window.localStorage.length; i++) {
+          const k = window.localStorage.key(i);
+          if (k && k.startsWith(STORAGE_NAMESPACE)) toRemove.push(k);
+        }
+        toRemove.forEach((k) => window.localStorage.removeItem(k));
+      }
+      Object.keys(_memStore).forEach((k) => delete _memStore[k]);
+    } catch { /* noop */ }
+  },
+  isPersistent() { return _hasLocalStorage; },
 };
 
 
@@ -513,6 +575,65 @@ function generateSyntheticClaims(coveredLives, annualSpend) {
 }
 
 /* ---------------------------------------------------------------------
+ *  PARTIAL-SUMMARY DECOMPOSITION
+ *  Shared helper: turns category-level totals into representative claim
+ *  lines. Used by Mode 2 CSV ingestion, Mode 2 manual entry, and the
+ *  demo case loader so the three paths produce identical shape output.
+ * ------------------------------------------------------------------- */
+
+function decomposePartialSummary(rows, lives) {
+  const errors = [];
+  const synthClaims = [];
+  let seq = 1;
+  const livesEff = Number(lives) || 100;
+  const fileMaxConfidence = { high: 3, medium: 2, low: 1 };
+  let minConf = 3;
+  let aggDataSource = null;
+
+  rows.forEach((row, i) => {
+    const rowNum = i + 2;
+    const cat = (row.claims_category || row.category || "").trim();
+    const spend = parseFloat(row.annual_spend);
+    if (!cat) { errors.push(`Row ${rowNum}: missing claims_category`); return; }
+    if (isNaN(spend) || spend < 0) { errors.push(`Row ${rowNum}: invalid annual_spend`); return; }
+    const conf = (row.confidence_level || "medium").toLowerCase();
+    if (fileMaxConfidence[conf]) minConf = Math.min(minConf, fileMaxConfidence[conf]);
+    aggDataSource = aggDataSource || row.data_source;
+
+    const rep = SYNTHETIC_DISTRIBUTION.find(([c]) => c.toLowerCase() === cat.toLowerCase());
+    const [, , , avgSize, cpt, pos] = rep || ["", 0, 0, 200, "99213", "11"];
+    const count = Math.max(1, Math.round(spend / (avgSize || 200)));
+    const claimSize = spend / count;
+
+    for (let k = 0; k < count; k++) {
+      synthClaims.push({
+        claim_id: `CLM_PARTIAL_${String(seq).padStart(6, "0")}`,
+        member_id: `M${String((seq % Math.max(2, livesEff)) + 1).padStart(4, "0")}`,
+        service_date: row.period_end || row.period_start || "2025-06-15",
+        cpt_code: cpt,
+        place_of_service: pos,
+        provider_specialty: cat === "Primary Care" ? "Family Medicine" : "",
+        claim_type: cat === "Pharmacy" ? "Rx" : cat === "Inpatient" ? "Facility" : "Professional",
+        allowed_amount: claimSize,
+        drg_code: cat === "Inpatient" ? "291" : "",
+        _from_summary: true,
+        _summary_category: cat,
+        _summary_source_row: rowNum,
+      });
+      seq++;
+    }
+  });
+
+  const confidence = minConf === 3 ? "high" : minConf === 2 ? "medium" : "low";
+  return {
+    claims: synthClaims,
+    errors,
+    confidence,
+    data_source: aggDataSource || "broker_report",
+  };
+}
+
+/* ---------------------------------------------------------------------
  *  STORAGE WRAPPER
  * ------------------------------------------------------------------- */
 
@@ -528,6 +649,12 @@ const storage = {
   },
   async delete(key) {
     try { await window.storage.delete(key); return true; } catch { return false; }
+  },
+  async clearAll() {
+    try { await window.storage.clearAll?.(); return true; } catch { return false; }
+  },
+  isPersistent() {
+    try { return window.storage.isPersistent ? window.storage.isPersistent() : false; } catch { return false; }
   },
 };
 
@@ -698,13 +825,220 @@ function ClaimsReclassificationEngine() {
     await storage.delete(`employer:${id}`);
     await storage.delete(`claims:${id}`);
     await storage.delete(`scenario:${id}`);
+    await storage.delete(`input_mode:${id}`);
     if (activeEmployerId === id) {
       setActiveEmployerId(null);
       setActiveEmployer(null);
       setClaims([]);
       setClassifiedClaims([]);
+      setInputModeRecord(null);
     }
     await loadEmployers();
+  };
+
+  // Wipe all locally-persisted state (employers, claims, scenarios, versions,
+  // audit log, admin overrides). Used by the "Reset demo data" affordance.
+  const resetAllData = async () => {
+    await storage.clearAll();
+    setEmployers([]);
+    setActiveEmployerId(null);
+    setActiveEmployer(null);
+    setClaims([]);
+    setClassifiedClaims([]);
+    setInputModeRecord(null);
+    setActiveScenario({ ...SCENARIO_PRESETS.expected });
+    setCptRules(DEFAULT_CPT_RULES);
+    setCashPrices(DEFAULT_CASH_PRICES);
+    setIndemnityBenefits(DEFAULT_INDEMNITY_BENEFITS);
+    setRepriceFactors(DEFAULT_REPRICE_FACTORS);
+    setPricingVersions([INITIAL_PRICING_VERSION]);
+    setRuleVersions([INITIAL_RULE_VERSION]);
+    setIndemnityVersions([INITIAL_INDEMNITY_VERSION]);
+    setBenchmarkVersions([INITIAL_BENCHMARK_VERSION]);
+    setAuditLog([]);
+    setScreen(SCREENS.CASES);
+  };
+
+  // Shared ingestion path. Stamps every claim with the eight provenance
+  // fields per Data Dictionary v3.0 §6, persists claims + input_mode for
+  // the given employerId, and updates component state.
+  const ingestClaims = async (employerId, parsed, meta = {}) => {
+    if (!employerId) return null;
+    const mode = meta.mode || "full";
+    const m = INPUT_MODES[mode.toUpperCase()] || INPUT_MODES.FULL;
+    const confidence = meta.confidence || m.confidence;
+    const dataSource = meta.data_source || (mode === "full" ? "claims_extract" : mode === "modeled" ? "benchmark" : "broker_report");
+    const assumptionSource = mode === "modeled" ? ASSUMPTION_SOURCES.BENCHMARK : ASSUMPTION_SOURCES.ACTUAL;
+
+    const classified = parsed.map((c) => {
+      const r = normalizeAndClassify(c, cptRules);
+      return {
+        ...c,
+        normalized_category: r.category,
+        bucket: r.bucket,
+        bucket_default: r.bucket,
+        classification_confidence: r.confidence,
+        classification_source: r.source,
+        input_mode: mode,
+        data_source: dataSource,
+        confidence_level: confidence,
+        assumption_source: assumptionSource,
+        pricing_version_id: activePricingVersion.id,
+        rule_version_id: activeRuleVersion.id,
+        indemnity_version_id: activeIndemnityVersion.id,
+        benchmark_version_id: mode === "modeled" ? activeBenchmarkVersion.id : null,
+        manual_override: false,
+        override_reason: null,
+      };
+    });
+
+    const inputModeRow = {
+      id: `im_${Date.now()}`,
+      employer_id: employerId,
+      mode,
+      uploaded_file_name: meta.file_name || null,
+      row_count: parsed.length,
+      claim_lines_total: mode === "full" ? parsed.length : null,
+      categories_total: mode === "partial" ? parsed.length : null,
+      benchmark_profile_id: mode === "modeled" ? activeBenchmarkVersion.id : null,
+      confidence_default: m.confidence,
+      confidence_override: meta.confidence_override || null,
+      uploaded_by: "current_user",
+      uploaded_at: Date.now(),
+    };
+
+    await storage.set(`input_mode:${employerId}`, inputModeRow);
+    await storage.set(`claims:${employerId}`, classified);
+    setInputModeRecord(inputModeRow);
+    setClaims(classified);
+    setClassifiedClaims(classified.filter((x) => x.bucket));
+    return { classified, inputModeRow, label: m.label };
+  };
+
+  // One-click demo-case loader. Resolves the loader spec, ingests data
+  // through the same provenance pipeline used by the upload screens,
+  // applies the case's default scenario, and routes to the dashboard.
+  const loadDemoCase = async (demoCase) => {
+    if (!demoCase) return;
+    setLoading(true);
+    try {
+      const employer = { ...demoCase.employer, created_at: Date.now() };
+      await saveEmployer(employer);
+      setActiveEmployerId(employer.id);
+
+      const loader = demoCase.loader || {};
+      let parsed = [];
+      let meta = {};
+
+      if (loader.kind === "synthetic_full") {
+        const { claims: synth, meta: synthMeta } = generateSyntheticClaims(
+          Number(loader.lives) || Number(employer.covered_lives) || 100,
+          Number(loader.spend) || Number(employer.historical_claims_spend) || 500000
+        );
+        // For demo purposes, synthetic-but-CPT-detailed records are
+        // ingested as Mode 1 (Full Claims) with high confidence so the
+        // viewer can see the high-confidence path. Real production data
+        // would never be modeled-then-relabeled like this.
+        parsed = synth.map((c, i) => ({
+          ...c,
+          // enrich with full-claim fields for demonstration
+          employer_id: employer.id,
+          employee_id: `E${String((i % Math.max(2, Math.floor(employer.covered_lives / 1.6))) + 1).padStart(4, "0")}`,
+          member_relationship: i % 3 === 0 ? "spouse" : i % 5 === 0 ? "child" : "employee",
+          member_age: 25 + ((i * 7) % 45),
+          member_gender: i % 2 === 0 ? "M" : "F",
+          chronic_flag: c.bucket === "E" || (c.allowed_amount || 0) > 5000,
+          state: employer.state,
+        }));
+        meta = {
+          mode: "full",
+          file_name: `[demo] ${employer.name} synthetic Mode 1.csv`,
+          data_source: "claims_extract",
+          confidence: "high",
+          confidence_override: null,
+        };
+        if (synthMeta.wasCapped) {
+          showToast(`Synthetic dataset capped at ${parsed.length.toLocaleString()} records to protect browser memory`, "info");
+        }
+      } else if (loader.kind === "csv_partial") {
+        let rows = [];
+        try {
+          const resp = await fetch(loader.url, { cache: "no-store" });
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          const text = await resp.text();
+          const parsedCsv = Papa.parse(text, {
+            header: true,
+            skipEmptyLines: true,
+            transformHeader: (h) => h.trim().toLowerCase().replace(/\s+/g, "_"),
+          });
+          rows = parsedCsv.data || [];
+        } catch (err) {
+          showToast(`Couldn't load demo CSV: ${err.message}`, "error");
+          setLoading(false);
+          return;
+        }
+        const dec = decomposePartialSummary(rows, employer.covered_lives);
+        parsed = dec.claims;
+        meta = {
+          mode: "partial",
+          file_name: `[demo] ${loader.url.split("/").pop()}`,
+          data_source: dec.data_source,
+          confidence: dec.confidence,
+        };
+      } else if (loader.kind === "rows_partial") {
+        const rows = Array.isArray(loader.rows) ? loader.rows : [];
+        const dec = decomposePartialSummary(rows, employer.covered_lives);
+        parsed = dec.claims;
+        meta = {
+          mode: "partial",
+          file_name: `[demo] ${employer.name} category totals`,
+          data_source: dec.data_source,
+          confidence: dec.confidence,
+        };
+      } else if (loader.kind === "modeled") {
+        const { claims: synth, meta: synthMeta } = generateSyntheticClaims(
+          Number(loader.lives) || Number(employer.covered_lives) || 100,
+          Number(loader.spend) || Number(employer.historical_claims_spend) || 500000
+        );
+        parsed = synth;
+        meta = {
+          mode: "modeled",
+          file_name: null,
+          data_source: "benchmark",
+          confidence: "low",
+        };
+        if (synthMeta.wasCapped) {
+          showToast(`Synthetic dataset capped at ${parsed.length.toLocaleString()} records to protect browser memory`, "info");
+        }
+      } else {
+        showToast(`Unknown demo loader kind: ${loader.kind}`, "error");
+        setLoading(false);
+        return;
+      }
+
+      const ingest = await ingestClaims(employer.id, parsed, meta);
+
+      const scenarioKey = demoCase.scenario || "expected";
+      const scn = { ...(SCENARIO_PRESETS[scenarioKey] || SCENARIO_PRESETS.expected) };
+      await storage.set(`scenario:${employer.id}`, scn);
+      setActiveScenario(scn);
+
+      const dest = (demoCase.destination || "dashboard").toLowerCase();
+      const screenMap = {
+        dashboard: SCREENS.DASHBOARD,
+        upload: SCREENS.UPLOAD,
+        classify: SCREENS.CLASSIFY,
+        scenario: SCREENS.SCENARIO,
+        report: SCREENS.REPORT,
+      };
+      setScreen(screenMap[dest] || SCREENS.DASHBOARD);
+      showToast(
+        `Demo case loaded · ${employer.name} (${ingest?.label || "—"}) · ${ingest?.classified?.length?.toLocaleString() || 0} claim lines`,
+        "success"
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   // The calculation result (memoized)
@@ -733,6 +1067,9 @@ function ClaimsReclassificationEngine() {
             onOpen={async (id) => { await loadEmployer(id); setScreen(SCREENS.UPLOAD); }}
             onCreateNew={() => setScreen(SCREENS.SETUP)}
             onDelete={deleteEmployer}
+            onLoadDemo={loadDemoCase}
+            onResetAll={resetAllData}
+            isPersistent={storage.isPersistent()}
           />
         )}
         {screen === SCREENS.SETUP && (
@@ -748,96 +1085,26 @@ function ClaimsReclassificationEngine() {
             cptRules={cptRules}
             inputModeRecord={inputModeRecord}
             onClaimsLoaded={async (parsed, meta = {}) => {
-              const mode = meta.mode || "full";
-              const m = INPUT_MODES[mode.toUpperCase()] || INPUT_MODES.FULL;
-              const confidence = meta.confidence || m.confidence;
-              const dataSource = meta.data_source || (mode === "full" ? "claims_extract" : "broker_report");
-              const assumptionSource = mode === "modeled" ? ASSUMPTION_SOURCES.BENCHMARK : ASSUMPTION_SOURCES.ACTUAL;
-
-              const classified = parsed.map((c) => {
-                const r = normalizeAndClassify(c, cptRules);
-                return {
-                  ...c,
-                  normalized_category: r.category,
-                  bucket: r.bucket,
-                  bucket_default: r.bucket,
-                  classification_confidence: r.confidence,
-                  classification_source: r.source,
-                  // Provenance
-                  input_mode: mode,
-                  data_source: dataSource,
-                  confidence_level: confidence,
-                  assumption_source: assumptionSource,
-                  pricing_version_id: activePricingVersion.id,
-                  rule_version_id: activeRuleVersion.id,
-                  indemnity_version_id: activeIndemnityVersion.id,
-                  benchmark_version_id: mode === "modeled" ? activeBenchmarkVersion.id : null,
-                  manual_override: false,
-                  override_reason: null,
-                };
-              });
-
-              const inputModeRow = {
-                id: `im_${Date.now()}`,
-                employer_id: activeEmployerId,
-                mode,
-                uploaded_file_name: meta.file_name || null,
-                row_count: parsed.length,
-                claim_lines_total: mode === "full" ? parsed.length : null,
-                categories_total: mode === "partial" ? parsed.length : null,
-                benchmark_profile_id: mode === "modeled" ? activeBenchmarkVersion.id : null,
-                confidence_default: m.confidence,
-                confidence_override: meta.confidence_override || null,
-                uploaded_by: "current_user",
-                uploaded_at: Date.now(),
-              };
-              setInputModeRecord(inputModeRow);
-              await storage.set(`input_mode:${activeEmployerId}`, inputModeRow);
-              await saveClaims(classified);
-              showToast(`${classified.length} claim records ingested · ${m.label}`, "success");
-              setScreen(SCREENS.CLASSIFY);
+              const ingest = await ingestClaims(activeEmployerId, parsed, meta);
+              if (ingest) {
+                showToast(`${ingest.classified.length.toLocaleString()} claim records ingested · ${ingest.label}`, "success");
+                setScreen(SCREENS.CLASSIFY);
+              }
             }}
             onSyntheticGenerate={async (lives, spend) => {
               const { claims: synth, meta: synthMeta } = generateSyntheticClaims(lives, spend);
-              const classified = synth.map((c) => {
-                const r = normalizeAndClassify(c, cptRules);
-                return {
-                  ...c,
-                  normalized_category: r.category,
-                  bucket: r.bucket,
-                  bucket_default: r.bucket,
-                  classification_confidence: r.confidence,
-                  classification_source: r.source,
-                  input_mode: "modeled",
-                  data_source: "benchmark",
-                  confidence_level: "low",
-                  assumption_source: ASSUMPTION_SOURCES.BENCHMARK,
-                  pricing_version_id: activePricingVersion.id,
-                  rule_version_id: activeRuleVersion.id,
-                  indemnity_version_id: activeIndemnityVersion.id,
-                  benchmark_version_id: activeBenchmarkVersion.id,
-                  manual_override: false,
-                  override_reason: null,
-                };
-              });
-              const inputModeRow = {
-                id: `im_${Date.now()}`,
-                employer_id: activeEmployerId,
+              const ingest = await ingestClaims(activeEmployerId, synth, {
                 mode: "modeled",
-                row_count: classified.length,
-                benchmark_profile_id: activeBenchmarkVersion.id,
-                confidence_default: "low",
-                uploaded_by: "current_user",
-                uploaded_at: Date.now(),
-              };
-              setInputModeRecord(inputModeRow);
-              await storage.set(`input_mode:${activeEmployerId}`, inputModeRow);
-              await saveClaims(classified);
-              const cappedNote = synthMeta.wasCapped
-                ? ` (capped from ${synthMeta.requestedClaims.toLocaleString()} to protect browser memory)`
-                : "";
-              showToast(`Modeled dataset built · ${classified.length.toLocaleString()} synthetic lines${cappedNote}`, "success");
-              setScreen(SCREENS.CLASSIFY);
+                data_source: "benchmark",
+                confidence: "low",
+              });
+              if (ingest) {
+                const cappedNote = synthMeta.wasCapped
+                  ? ` (capped from ${synthMeta.requestedClaims.toLocaleString()} to protect browser memory)`
+                  : "";
+                showToast(`Modeled dataset built · ${ingest.classified.length.toLocaleString()} synthetic lines${cappedNote}`, "success");
+                setScreen(SCREENS.CLASSIFY);
+              }
             }}
             showToast={showToast}
           />
@@ -1007,44 +1274,200 @@ function Header({ screen, setScreen, activeEmployer, clearEmployer }) {
  *  CASES SCREEN
  * ------------------------------------------------------------------- */
 
-function CasesScreen({ employers, loading, onOpen, onCreateNew, onDelete }) {
+function CasesScreen({ employers, loading, onOpen, onCreateNew, onDelete, onLoadDemo, onResetAll, isPersistent }) {
+  const demoCases = (window.OFFPLAN_DEMO && window.OFFPLAN_DEMO.DEMO_CASES) || [];
+  const [resetting, setResetting] = useState(false);
+
+  const handleReset = async () => {
+    if (!confirm("Wipe all locally-saved cases, scenarios, admin overrides, and audit log? This cannot be undone.")) return;
+    setResetting(true);
+    try { await onResetAll?.(); } finally { setResetting(false); }
+  };
+
   return (
     <div>
-      <div className="flex items-end justify-between mb-8">
+      <DemoBanner isPersistent={isPersistent} />
+
+      <div className="flex items-end justify-between mb-6 gap-6 flex-wrap">
         <div>
           <h1 className="font-display text-5xl text-stone-900 leading-none mb-2">
             Employer Cases
           </h1>
-          <p className="text-stone-600 max-w-xl">
+          <p className="text-stone-600 max-w-2xl">
             Each case represents one employer's claims being reconstructed under the OffPlan model.
-            Upload claims, adjust assumptions, and produce the deterministic classification output (residual fund, OffPlan stack PEPM, savings vs current spend). The headline capital output specified by the engine — Minimum Required Liquidity from the stochastic layer — is under development and not yet computed in this prototype.
+            Upload claims, adjust assumptions, and produce the deterministic classification output (residual fund, OffPlan stack PEPM, savings vs current spend). The stochastic capital layer (Minimum Required Liquidity, CER, LCR, SCR) is specified in the Liquidity &amp; Capital Modeling Spec v1.2 and not yet computed in this prototype.
           </p>
         </div>
-        <button
-          onClick={onCreateNew}
-          className="flex items-center gap-2 bg-stone-900 text-white px-5 h-11 rounded font-medium hover:bg-stone-800 transition"
-        >
-          <Plus size={16} strokeWidth={2.5} />
-          New Case
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleReset}
+            disabled={resetting}
+            title="Wipe all locally-saved demo data"
+            className="flex items-center gap-2 border border-stone-300 text-stone-700 px-4 h-11 rounded font-medium hover:bg-stone-50 disabled:opacity-50"
+          >
+            <RefreshCw size={14} />
+            {resetting ? "Resetting…" : "Reset demo data"}
+          </button>
+          <button
+            onClick={onCreateNew}
+            className="flex items-center gap-2 bg-stone-900 text-white px-5 h-11 rounded font-medium hover:bg-stone-800 transition"
+          >
+            <Plus size={16} strokeWidth={2.5} />
+            New Case
+          </button>
+        </div>
       </div>
 
-      {loading ? (
-        <div className="text-stone-500">Loading...</div>
-      ) : employers.length === 0 ? (
-        <EmptyState
-          title="No cases yet"
-          description="Start by creating an employer case. You can upload a full claims file, enter summarized data, or model from headcount and current spend."
-          ctaLabel="Create your first case"
-          onAction={onCreateNew}
-        />
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {employers.map((e) => (
-            <EmployerCard key={e.id} employer={e} onOpen={() => onOpen(e.id)} onDelete={() => onDelete(e.id)} />
-          ))}
-        </div>
+      {demoCases.length > 0 && (
+        <DemoCasePanel demoCases={demoCases} onLoadDemo={onLoadDemo} loading={loading} />
       )}
+
+      <div className="mt-10">
+        <div className="flex items-baseline justify-between mb-4">
+          <h2 className="text-[11px] uppercase tracking-[0.18em] text-stone-500 font-semibold">
+            Your saved cases
+          </h2>
+          <span className="text-xs text-stone-400">
+            {employers.length} case{employers.length === 1 ? "" : "s"}
+          </span>
+        </div>
+
+        {loading ? (
+          <div className="text-stone-500">Loading…</div>
+        ) : employers.length === 0 ? (
+          <EmptyState
+            title="No saved cases yet"
+            description="Load one of the demo cases above to see the engine end-to-end, or create a new case from scratch with your own claims data."
+            ctaLabel="Create your first case"
+            onAction={onCreateNew}
+          />
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {employers.map((e) => (
+              <EmployerCard key={e.id} employer={e} onOpen={() => onOpen(e.id)} onDelete={() => onDelete(e.id)} />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DemoBanner({ isPersistent }) {
+  const [collapsed, setCollapsed] = useState(false);
+  if (collapsed) return null;
+  return (
+    <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-8 flex items-start gap-3">
+      <AlertTriangle size={18} className="text-amber-700 shrink-0 mt-0.5" />
+      <div className="flex-1 text-sm">
+        <div className="font-medium text-amber-900 mb-1">
+          Static demo · No backend · Not for PHI
+        </div>
+        <div className="text-amber-800 leading-relaxed">
+          This is the OffPlan Reclassification Engine reference implementation running entirely in your browser. All calculation, classification, and persistence happens client-side
+          {isPersistent ? " using your browser's localStorage" : " in-memory only (your browser blocked localStorage)"}.
+          {" "}Do not load real protected health information. The bundled demo cases use synthetic and benchmark-derived data only. Production deployment requires the backend calculation service, multi-tenant database, and SOC 2 / HIPAA controls described in the Architecture &amp; Security Specification v1.0.
+        </div>
+      </div>
+      <button
+        onClick={() => setCollapsed(true)}
+        className="text-amber-700 hover:text-amber-900 p-1"
+        title="Dismiss"
+      >
+        <X size={14} />
+      </button>
+    </div>
+  );
+}
+
+function DemoCasePanel({ demoCases, onLoadDemo, loading }) {
+  const [pending, setPending] = useState(null);
+
+  const handleLoad = async (demoCase) => {
+    if (pending) return;
+    setPending(demoCase.id);
+    try { await onLoadDemo?.(demoCase); } finally { setPending(null); }
+  };
+
+  return (
+    <div className="bg-white border border-stone-200 rounded-lg p-6">
+      <div className="flex items-baseline justify-between mb-4 flex-wrap gap-2">
+        <div>
+          <div className="text-[10px] uppercase tracking-[0.18em] text-stone-500 font-semibold mb-1">
+            Prebuilt demo cases
+          </div>
+          <h2 className="font-display text-2xl text-stone-900">
+            One-click employer scenarios
+          </h2>
+        </div>
+        <p className="text-xs text-stone-500 max-w-md">
+          Each case loads a different input mode (Full Claims, Partial Summary, Modeled Profile) and
+          a sensible scenario preset, so you can compare confidence levels and the cascade output.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        {demoCases.map((dc) => (
+          <DemoCaseCard
+            key={dc.id}
+            demoCase={dc}
+            onLoad={() => handleLoad(dc)}
+            loading={loading || pending === dc.id}
+            disabled={!!pending && pending !== dc.id}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DemoCaseCard({ demoCase, onLoad, loading, disabled }) {
+  const modeColor = {
+    synthetic_full: { bg: "bg-emerald-50", text: "text-emerald-800", border: "border-emerald-200" },
+    csv_partial:    { bg: "bg-amber-50",   text: "text-amber-800",   border: "border-amber-200" },
+    rows_partial:   { bg: "bg-amber-50",   text: "text-amber-800",   border: "border-amber-200" },
+    modeled:        { bg: "bg-rose-50",    text: "text-rose-800",    border: "border-rose-200" },
+  }[demoCase.loader?.kind] || { bg: "bg-stone-50", text: "text-stone-800", border: "border-stone-200" };
+
+  return (
+    <div className={`border ${modeColor.border} rounded-lg p-4 flex flex-col`}>
+      <span className={`${modeColor.bg} ${modeColor.text} self-start text-[10px] uppercase tracking-wider px-2 py-0.5 rounded mb-3`}>
+        {demoCase.tagline}
+      </span>
+      <h3 className="font-medium text-stone-900 mb-1">{demoCase.label}</h3>
+      <p className="text-xs text-stone-600 leading-relaxed mb-4 flex-1">
+        {demoCase.blurb}
+      </p>
+      <div className="grid grid-cols-2 gap-2 mb-4 text-[11px]">
+        <div>
+          <div className="uppercase tracking-wider text-stone-500">Lives</div>
+          <div className="font-mono num text-stone-800">{fmtNum(demoCase.employer?.covered_lives)}</div>
+        </div>
+        <div>
+          <div className="uppercase tracking-wider text-stone-500">Total spend</div>
+          <div className="font-mono num text-stone-800">{fmtUSD(demoCase.employer?.current_total_healthcare_spend)}</div>
+        </div>
+        <div>
+          <div className="uppercase tracking-wider text-stone-500">State</div>
+          <div className="text-stone-800">{demoCase.employer?.state}</div>
+        </div>
+        <div>
+          <div className="uppercase tracking-wider text-stone-500">Scenario</div>
+          <div className="text-stone-800 capitalize">{demoCase.scenario}</div>
+        </div>
+      </div>
+      <button
+        onClick={onLoad}
+        disabled={loading || disabled}
+        className="w-full bg-stone-900 text-white h-10 rounded text-sm font-medium hover:bg-stone-800 disabled:opacity-50 flex items-center justify-center gap-2"
+      >
+        {loading ? "Loading…" : (
+          <>
+            Load case
+            <ArrowRight size={14} />
+          </>
+        )}
+      </button>
     </div>
   );
 }
@@ -1490,63 +1913,52 @@ function UploadScreen({ employer, existingClaims, onClaimsLoaded, onSyntheticGen
           if (missingHeaders.length) errors.push(`Missing required columns: ${missingHeaders.join(", ")}`);
         }
 
-        const synthClaims = [];
-        let seq = 1;
-        const lives = Number(employer?.covered_lives) || 100;
-        const fileMaxConfidence = { high: 3, medium: 2, low: 1 };
-        let minConf = 3;
-        let aggDataSource = null;
-
-        rows.forEach((row, i) => {
-          const rowNum = i + 2;
-          const cat = (row.claims_category || "").trim();
-          const spend = parseFloat(row.annual_spend);
-          if (!cat) { errors.push(`Row ${rowNum}: missing claims_category`); return; }
-          if (isNaN(spend) || spend < 0) { errors.push(`Row ${rowNum}: invalid annual_spend`); return; }
-          const conf = (row.confidence_level || "medium").toLowerCase();
-          if (fileMaxConfidence[conf]) minConf = Math.min(minConf, fileMaxConfidence[conf]);
-          aggDataSource = aggDataSource || row.data_source;
-
-          const rep = SYNTHETIC_DISTRIBUTION.find(([c]) => c.toLowerCase() === cat.toLowerCase());
-          const [, , , avgSize, cpt, pos] = rep || ["", 0, 0, 200, "99213", "11"];
-          const count = Math.max(1, Math.round(spend / (avgSize || 200)));
-          const claimSize = spend / count;
-
-          for (let k = 0; k < count; k++) {
-            synthClaims.push({
-              claim_id: `CLM_PARTIAL_${String(seq).padStart(6, "0")}`,
-              member_id: `M${String((seq % Math.max(2, lives)) + 1).padStart(4, "0")}`,
-              service_date: row.period_end || row.period_start || "2025-06-15",
-              cpt_code: cpt,
-              place_of_service: pos,
-              provider_specialty: cat === "Primary Care" ? "Family Medicine" : "",
-              claim_type: cat === "Pharmacy" ? "Rx" : cat === "Inpatient" ? "Facility" : "Professional",
-              allowed_amount: claimSize,
-              drg_code: cat === "Inpatient" ? "291" : "",
-              _from_summary: true,
-              _summary_category: cat,
-              _summary_source_row: rowNum,
-            });
-            seq++;
-          }
-        });
+        const dec = decomposePartialSummary(rows, employer?.covered_lives);
+        errors.push(...dec.errors);
 
         if (errors.length > 5) setParseErrors([...errors.slice(0, 5), `... and ${errors.length - 5} more issues.`]);
         else setParseErrors(errors);
 
-        if (synthClaims.length > 0) {
-          const confidence = minConf === 3 ? "high" : minConf === 2 ? "medium" : "low";
-          onClaimsLoaded(synthClaims, {
+        if (dec.claims.length > 0) {
+          onClaimsLoaded(dec.claims, {
             mode: "partial",
             file_name: file.name,
-            data_source: aggDataSource || "broker_report",
-            confidence,
+            data_source: dec.data_source,
+            confidence: dec.confidence,
           });
         }
         setParsing(false);
       },
       error: (err) => { setParseErrors([`Parse error: ${err.message}`]); setParsing(false); },
     });
+  };
+
+  // Fetch a bundled CSV sample from /data/ and route it through the same
+  // ingestion path the user-uploaded file would take. Useful for quickly
+  // demonstrating the full pipeline without forcing the viewer to find a
+  // CSV on their disk.
+  const loadSampleFile = async (which) => {
+    const samples = (window.OFFPLAN_DEMO && window.OFFPLAN_DEMO.SAMPLE_CSV_FILES) || {};
+    const sample = samples[which];
+    if (!sample) {
+      showToast(`No bundled sample for "${which}"`, "error");
+      return;
+    }
+    setParsing(true);
+    setParseErrors([]);
+    try {
+      const resp = await fetch(sample.url, { cache: "no-store" });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const text = await resp.text();
+      const blob = new Blob([text], { type: "text/csv" });
+      const file = new File([blob], sample.url.split("/").pop(), { type: "text/csv" });
+      if (which === "full") handleFullClaimsFile(file);
+      else if (which === "partial") handlePartialSummaryFile(file);
+      else { showToast(`Sample "${which}" not supported`, "error"); setParsing(false); }
+    } catch (err) {
+      showToast(`Couldn't load sample: ${err.message}`, "error");
+      setParsing(false);
+    }
   };
 
   return (
@@ -1610,13 +2022,20 @@ function UploadScreen({ employer, existingClaims, onClaimsLoaded, onSyntheticGen
       )}
 
       {mode === "full" && (
-        <FullClaimsUpload fileRef={fileRef} onFile={handleFullClaimsFile} parsing={parsing} errors={parseErrors} />
+        <FullClaimsUpload
+          fileRef={fileRef}
+          onFile={handleFullClaimsFile}
+          onLoadSample={() => loadSampleFile("full")}
+          parsing={parsing}
+          errors={parseErrors}
+        />
       )}
 
       {mode === "summary" && (
         <PartialSummaryUpload
           employer={employer}
           onFile={handlePartialSummaryFile}
+          onLoadSample={() => loadSampleFile("partial")}
           onManualSubmit={(claims, meta) => onClaimsLoaded(claims, { mode: "partial", ...meta })}
           parsing={parsing}
           errors={parseErrors}
@@ -1656,7 +2075,7 @@ function ModeCard({ active, onClick, badge, title, description, confidence, conf
   );
 }
 
-function FullClaimsUpload({ fileRef, onFile, parsing, errors }) {
+function FullClaimsUpload({ fileRef, onFile, onLoadSample, parsing, errors }) {
   const downloadTemplate = () => {
     const headers = "claim_id,employer_id,member_id,employee_id,member_relationship,member_age,member_gender,service_date,paid_date,claim_type,place_of_service,provider_specialty,facility_type,cpt_code,hcpcs_code,icd10_primary,icd10_secondary,revenue_code,drg_code,allowed_amount,paid_amount,member_oop_amount,units,provider_npi,provider_zip3,state,notes";
     const example = "CLM000001,EMP_TEST_001,M0001,E001,employee,47,F,2025-04-15,2025-05-12,Professional,Office,Family Medicine,Clinic,99213,,I10,E119,,,185,155,30,1,1234567890,331,FL,Primary Care";
@@ -1677,7 +2096,7 @@ function FullClaimsUpload({ fileRef, onFile, parsing, errors }) {
         </div>
         <h3 className="font-display text-2xl mb-1">Upload Claims CSV</h3>
         <p className="text-sm text-stone-600 mb-6">Drag a file here, or click to browse.</p>
-        <div className="flex justify-center gap-3">
+        <div className="flex justify-center gap-3 flex-wrap">
           <button
             onClick={() => fileRef.current?.click()}
             disabled={parsing}
@@ -1685,6 +2104,16 @@ function FullClaimsUpload({ fileRef, onFile, parsing, errors }) {
           >
             {parsing ? "Parsing..." : "Choose File"}
           </button>
+          {onLoadSample && (
+            <button
+              onClick={onLoadSample}
+              disabled={parsing}
+              className="border border-stone-300 px-5 h-10 rounded font-medium hover:bg-stone-50 flex items-center gap-2 disabled:opacity-50"
+              title="Load the bundled v2.1 sample claims CSV"
+            >
+              <Database size={14} /> Use sample CSV
+            </button>
+          )}
           <button
             onClick={downloadTemplate}
             className="border border-stone-300 px-5 h-10 rounded font-medium hover:bg-stone-50 flex items-center gap-2"
@@ -1719,7 +2148,7 @@ function FullClaimsUpload({ fileRef, onFile, parsing, errors }) {
   );
 }
 
-function PartialSummaryUpload({ employer, onFile, onManualSubmit, parsing, errors, showToast }) {
+function PartialSummaryUpload({ employer, onFile, onLoadSample, onManualSubmit, parsing, errors, showToast }) {
   const [subMode, setSubMode] = useState("csv");
   const fileRef = useRef();
 
@@ -1768,11 +2197,18 @@ function PartialSummaryUpload({ employer, onFile, onManualSubmit, parsing, error
             </div>
             <h3 className="font-display text-2xl mb-1">Upload Partial Summary CSV</h3>
             <p className="text-sm text-stone-600 mb-6">One row per category. Drag a file here, or click to browse.</p>
-            <div className="flex justify-center gap-3">
+            <div className="flex justify-center gap-3 flex-wrap">
               <button onClick={() => fileRef.current?.click()} disabled={parsing}
                 className="bg-stone-900 text-white px-5 h-10 rounded font-medium hover:bg-stone-800 disabled:opacity-50">
                 {parsing ? "Parsing..." : "Choose File"}
               </button>
+              {onLoadSample && (
+                <button onClick={onLoadSample} disabled={parsing}
+                  className="border border-stone-300 px-5 h-10 rounded font-medium hover:bg-stone-50 flex items-center gap-2 disabled:opacity-50"
+                  title="Load the bundled v2.1 sample partial-summary CSV">
+                  <Database size={14} /> Use sample CSV
+                </button>
+              )}
               <button onClick={downloadTemplate}
                 className="border border-stone-300 px-5 h-10 rounded font-medium hover:bg-stone-50 flex items-center gap-2">
                 <Download size={14} /> Template
