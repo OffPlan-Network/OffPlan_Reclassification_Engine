@@ -13,7 +13,7 @@ import {
 } from '../constants.js';
 import { runCalculation } from '../engine/calculate.js';
 
-export function DashboardScreen({ employer, scenario, result, classifiedClaims,
+export function DashboardScreen({ employer, scenario, result, classifiedClaims, onScenarioChange,
                                    inputModeRecord, activePricingVersion, activeRuleVersion,
                                    activeIndemnityVersion, activeBenchmarkVersion }) {
   const lives = Number(employer?.covered_lives) || 1;
