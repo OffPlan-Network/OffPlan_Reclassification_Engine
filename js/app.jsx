@@ -58,73 +58,85 @@ const Edit3 = makeLucideIcon("Edit3");
 // Storage shim — Claude Artifacts shipped a window.storage API. For the static
 // GitHub Pages demo, persist to localStorage under a namespaced prefix so user
 // state survives reloads. Falls back to in-memory if localStorage is unavailable
-// (private browsing, sandboxed iframe, etc.).
-const STORAGE_NAMESPACE = "offplan_engine:";
-const _hasLocalStorage = (() => {
-  try {
-    const k = `${STORAGE_NAMESPACE}__probe__`;
-    window.localStorage.setItem(k, "1");
-    window.localStorage.removeItem(k);
-    return true;
-  } catch { return false; }
-})();
-const _memStore = {};
+// (private browsing, sandboxed iframe, etc.). Wrapped in an IIFE so the shim's
+// internal helpers (`memStore`, `ns`, `hasLocalStorage`) stay closed over and
+// don't leak as window properties when Babel-standalone transpiles `const`
+// declarations down to top-level `var`.
+(function installStorageShim() {
+  const STORAGE_NAMESPACE = "offplan_engine:";
+  const ns = (key) => STORAGE_NAMESPACE + key;
 
-window.storage = {
-  _ns(key) { return STORAGE_NAMESPACE + key; },
-  async get(key) {
-    try {
-      if (_hasLocalStorage) {
-        const raw = window.localStorage.getItem(this._ns(key));
-        if (raw === null || raw === undefined) return null;
-        return { key, value: raw, shared: false };
-      }
-      return _memStore[key] !== undefined ? { key, value: _memStore[key], shared: false } : null;
-    } catch { return null; }
-  },
-  async set(key, value) {
-    try {
-      if (_hasLocalStorage) window.localStorage.setItem(this._ns(key), value);
-      else _memStore[key] = value;
-    } catch { _memStore[key] = value; }
-    return { key, value, shared: false };
-  },
-  async delete(key) {
-    try {
-      if (_hasLocalStorage) window.localStorage.removeItem(this._ns(key));
-      delete _memStore[key];
-    } catch { delete _memStore[key]; }
-    return { key, deleted: true, shared: false };
-  },
-  async list(prefix = "") {
-    try {
-      if (_hasLocalStorage) {
-        const full = this._ns(prefix);
-        const keys = [];
-        for (let i = 0; i < window.localStorage.length; i++) {
-          const k = window.localStorage.key(i);
-          if (k && k.startsWith(full)) keys.push(k.slice(STORAGE_NAMESPACE.length));
+  let hasLocalStorage = false;
+  try {
+    const probeKey = STORAGE_NAMESPACE + "__probe__";
+    window.localStorage.setItem(probeKey, "1");
+    window.localStorage.removeItem(probeKey);
+    hasLocalStorage = true;
+  } catch (_e) { hasLocalStorage = false; }
+
+  const memStore = {};
+
+  window.storage = {
+    async get(key) {
+      try {
+        if (hasLocalStorage) {
+          const raw = window.localStorage.getItem(ns(key));
+          if (raw === null || raw === undefined) return null;
+          return { key, value: raw, shared: false };
         }
-        return { keys, prefix, shared: false };
-      }
-      return { keys: Object.keys(_memStore).filter((k) => k.startsWith(prefix)), prefix, shared: false };
-    } catch { return { keys: [], prefix, shared: false }; }
-  },
-  async clearAll() {
-    try {
-      if (_hasLocalStorage) {
-        const toRemove = [];
-        for (let i = 0; i < window.localStorage.length; i++) {
-          const k = window.localStorage.key(i);
-          if (k && k.startsWith(STORAGE_NAMESPACE)) toRemove.push(k);
+        return memStore[key] !== undefined ? { key, value: memStore[key], shared: false } : null;
+      } catch (_e) { return null; }
+    },
+    async set(key, value) {
+      try {
+        if (hasLocalStorage) window.localStorage.setItem(ns(key), value);
+        else memStore[key] = value;
+      } catch (_e) { memStore[key] = value; }
+      return { key, value, shared: false };
+    },
+    async delete(key) {
+      try {
+        if (hasLocalStorage) window.localStorage.removeItem(ns(key));
+        delete memStore[key];
+      } catch (_e) { delete memStore[key]; }
+      return { key, deleted: true, shared: false };
+    },
+    async list(prefix) {
+      const safePrefix = typeof prefix === "string" ? prefix : "";
+      try {
+        if (hasLocalStorage) {
+          const full = ns(safePrefix);
+          const out = [];
+          const len = window.localStorage.length || 0;
+          for (let i = 0; i < len; i++) {
+            const k = window.localStorage.key(i);
+            if (typeof k === "string" && k.indexOf(full) === 0) {
+              out.push(k.slice(STORAGE_NAMESPACE.length));
+            }
+          }
+          return { keys: out, prefix: safePrefix, shared: false };
         }
-        toRemove.forEach((k) => window.localStorage.removeItem(k));
-      }
-      Object.keys(_memStore).forEach((k) => delete _memStore[k]);
-    } catch { /* noop */ }
-  },
-  isPersistent() { return _hasLocalStorage; },
-};
+        const memKeys = Object.keys(memStore).filter((k) => k.indexOf(safePrefix) === 0);
+        return { keys: memKeys, prefix: safePrefix, shared: false };
+      } catch (_e) { return { keys: [], prefix: safePrefix, shared: false }; }
+    },
+    async clearAll() {
+      try {
+        if (hasLocalStorage) {
+          const toRemove = [];
+          const len = window.localStorage.length || 0;
+          for (let i = 0; i < len; i++) {
+            const k = window.localStorage.key(i);
+            if (typeof k === "string" && k.indexOf(STORAGE_NAMESPACE) === 0) toRemove.push(k);
+          }
+          for (let i = 0; i < toRemove.length; i++) window.localStorage.removeItem(toRemove[i]);
+        }
+        Object.keys(memStore).forEach((k) => { delete memStore[k]; });
+      } catch (_e) { /* noop */ }
+    },
+    isPersistent() { return hasLocalStorage; },
+  };
+})();
 
 
 
@@ -637,7 +649,12 @@ function decomposePartialSummary(rows, lives) {
  *  STORAGE WRAPPER
  * ------------------------------------------------------------------- */
 
-const storage = {
+// IMPORTANT: do NOT name this `storage`. Babel-standalone's preset-env may
+// transpile top-level `const`/`let` to `var`, which in a non-module script
+// attaches the binding to `window`, clobbering `window.storage` and turning
+// every `await window.storage.foo(...)` into self-recursion (stack overflow,
+// caught and silently retried, manifesting as a renderer OOM in Chrome).
+const db = {
   async list(prefix) {
     try { const r = await window.storage.list(prefix); return r?.keys || []; } catch { return []; }
   },
@@ -706,14 +723,14 @@ function ClaimsReclassificationEngine() {
   useEffect(() => { loadEmployers(); loadVersionsAndAudit(); }, []);
 
   const loadVersionsAndAudit = async () => {
-    const pv = await storage.get("global:pricing_versions"); if (pv) setPricingVersions(pv);
-    const rv = await storage.get("global:rule_versions"); if (rv) setRuleVersions(rv);
-    const iv = await storage.get("global:indemnity_versions"); if (iv) setIndemnityVersions(iv);
-    const bv = await storage.get("global:benchmark_versions"); if (bv) setBenchmarkVersions(bv);
-    const al = await storage.get("global:audit_log"); if (al) setAuditLog(al);
-    const cp = await storage.get("global:cash_prices"); if (cp) setCashPrices(cp);
-    const ib = await storage.get("global:indemnity_benefits"); if (ib) setIndemnityBenefits(ib);
-    const rf = await storage.get("global:reprice_factors"); if (rf) setRepriceFactors(rf);
+    const pv = await db.get("global:pricing_versions"); if (pv) setPricingVersions(pv);
+    const rv = await db.get("global:rule_versions"); if (rv) setRuleVersions(rv);
+    const iv = await db.get("global:indemnity_versions"); if (iv) setIndemnityVersions(iv);
+    const bv = await db.get("global:benchmark_versions"); if (bv) setBenchmarkVersions(bv);
+    const al = await db.get("global:audit_log"); if (al) setAuditLog(al);
+    const cp = await db.get("global:cash_prices"); if (cp) setCashPrices(cp);
+    const ib = await db.get("global:indemnity_benefits"); if (ib) setIndemnityBenefits(ib);
+    const rf = await db.get("global:reprice_factors"); if (rf) setRepriceFactors(rf);
   };
 
   // Append an audit log row and persist
@@ -727,7 +744,7 @@ function ClaimsReclassificationEngine() {
     };
     const next = [row, ...auditLog].slice(0, 500); // cap at 500 most recent
     setAuditLog(next);
-    await storage.set("global:audit_log", next);
+    await db.set("global:audit_log", next);
   };
 
   // Create a new version on top of an existing one. Archives the prior active.
@@ -757,7 +774,7 @@ function ClaimsReclassificationEngine() {
     };
     const next = [newVersion, ...archived];
     setter(next);
-    await storage.set(storageKey, next);
+    await db.set(storageKey, next);
     await writeAudit({
       action: "create",
       entity_type: entityType,
@@ -776,11 +793,13 @@ function ClaimsReclassificationEngine() {
 
   const loadEmployers = async () => {
     setLoading(true);
-    const keys = await storage.list("employer:");
+    const keys = await db.list("employer:");
     const list = [];
-    for (const k of keys) {
-      const e = await storage.get(k);
-      if (e) list.push(e);
+    if (Array.isArray(keys)) {
+      for (const k of keys) {
+        const e = await db.get(k);
+        if (e) list.push(e);
+      }
     }
     list.sort((a, b) => (b.created_at || 0) - (a.created_at || 0));
     setEmployers(list);
@@ -789,10 +808,10 @@ function ClaimsReclassificationEngine() {
 
   const loadEmployer = async (id) => {
     setLoading(true);
-    const e = await storage.get(`employer:${id}`);
-    const c = await storage.get(`claims:${id}`) || [];
-    const s = await storage.get(`scenario:${id}`) || { ...SCENARIO_PRESETS.expected };
-    const im = await storage.get(`input_mode:${id}`);
+    const e = await db.get(`employer:${id}`);
+    const c = await db.get(`claims:${id}`) || [];
+    const s = await db.get(`scenario:${id}`) || { ...SCENARIO_PRESETS.expected };
+    const im = await db.get(`input_mode:${id}`);
     setActiveEmployerId(id);
     setActiveEmployer(e);
     setClaims(c);
@@ -803,29 +822,29 @@ function ClaimsReclassificationEngine() {
   };
 
   const saveEmployer = async (employer) => {
-    await storage.set(`employer:${employer.id}`, employer);
+    await db.set(`employer:${employer.id}`, employer);
     setActiveEmployer(employer);
     await loadEmployers();
   };
 
   const saveClaims = async (newClaims) => {
     if (!activeEmployerId) return;
-    await storage.set(`claims:${activeEmployerId}`, newClaims);
+    await db.set(`claims:${activeEmployerId}`, newClaims);
     setClaims(newClaims);
     setClassifiedClaims(newClaims.filter((x) => x.bucket));
   };
 
   const saveScenario = async (scn) => {
     if (!activeEmployerId) return;
-    await storage.set(`scenario:${activeEmployerId}`, scn);
+    await db.set(`scenario:${activeEmployerId}`, scn);
     setActiveScenario(scn);
   };
 
   const deleteEmployer = async (id) => {
-    await storage.delete(`employer:${id}`);
-    await storage.delete(`claims:${id}`);
-    await storage.delete(`scenario:${id}`);
-    await storage.delete(`input_mode:${id}`);
+    await db.delete(`employer:${id}`);
+    await db.delete(`claims:${id}`);
+    await db.delete(`scenario:${id}`);
+    await db.delete(`input_mode:${id}`);
     if (activeEmployerId === id) {
       setActiveEmployerId(null);
       setActiveEmployer(null);
@@ -839,7 +858,7 @@ function ClaimsReclassificationEngine() {
   // Wipe all locally-persisted state (employers, claims, scenarios, versions,
   // audit log, admin overrides). Used by the "Reset demo data" affordance.
   const resetAllData = async () => {
-    await storage.clearAll();
+    await db.clearAll();
     setEmployers([]);
     setActiveEmployerId(null);
     setActiveEmployer(null);
@@ -907,8 +926,8 @@ function ClaimsReclassificationEngine() {
       uploaded_at: Date.now(),
     };
 
-    await storage.set(`input_mode:${employerId}`, inputModeRow);
-    await storage.set(`claims:${employerId}`, classified);
+    await db.set(`input_mode:${employerId}`, inputModeRow);
+    await db.set(`claims:${employerId}`, classified);
     setInputModeRecord(inputModeRow);
     setClaims(classified);
     setClassifiedClaims(classified.filter((x) => x.bucket));
@@ -1020,7 +1039,7 @@ function ClaimsReclassificationEngine() {
 
       const scenarioKey = demoCase.scenario || "expected";
       const scn = { ...(SCENARIO_PRESETS[scenarioKey] || SCENARIO_PRESETS.expected) };
-      await storage.set(`scenario:${employer.id}`, scn);
+      await db.set(`scenario:${employer.id}`, scn);
       setActiveScenario(scn);
 
       const dest = (demoCase.destination || "dashboard").toLowerCase();
@@ -1069,7 +1088,7 @@ function ClaimsReclassificationEngine() {
             onDelete={deleteEmployer}
             onLoadDemo={loadDemoCase}
             onResetAll={resetAllData}
-            isPersistent={storage.isPersistent()}
+            isPersistent={db.isPersistent()}
           />
         )}
         {screen === SCREENS.SETUP && (
@@ -1176,19 +1195,19 @@ function ClaimsReclassificationEngine() {
             auditLog={auditLog}
             onUpdateCashPrices={async (next, reason) => {
               setCashPrices(next);
-              await storage.set("global:cash_prices", next);
+              await db.set("global:cash_prices", next);
               await cutNewVersion("pricing", () => next, reason || "Cash-pay table updated");
               showToast("New pricing version created", "success");
             }}
             onUpdateIndemnity={async (next, reason) => {
               setIndemnityBenefits(next);
-              await storage.set("global:indemnity_benefits", next);
+              await db.set("global:indemnity_benefits", next);
               await cutNewVersion("indemnity", () => next, reason || "Indemnity schedule updated");
               showToast("New indemnity version created", "success");
             }}
             onUpdateRepriceFactors={async (next, reason) => {
               setRepriceFactors(next);
-              await storage.set("global:reprice_factors", next);
+              await db.set("global:reprice_factors", next);
               await cutNewVersion("rule", () => ({ cpt_rules: cptRules, reprice_factors: next }), reason || "Repricing factors updated");
               showToast("New rule version created", "success");
             }}
