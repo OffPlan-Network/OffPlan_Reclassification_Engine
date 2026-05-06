@@ -7,23 +7,8 @@
 <meta name="description" content="OffPlan Claims Reclassification Engine — interactive static demo of the five-stage cascade (DPC eliminated, cash-pay repriced, indemnity offset, stop-loss shifted, residual funded).">
 <meta name="robots" content="noindex,nofollow">
 
-<!-- Tailwind CSS -->
+<!-- Tailwind via CDN. TODO: migrate to a built Tailwind v4 setup once the design is stable. -->
 <script src="https://cdn.tailwindcss.com"></script>
-
-<!-- React and ReactDOM -->
-<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-
-<!-- PapaParse for CSV handling -->
-<script src="https://unpkg.com/papaparse@5.4.1/papaparse.min.js"></script>
-
-<!-- Babel for in-browser JSX transformation -->
-<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
-<!-- Lucide icons (custom build that exposes them as global) -->
-<script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
-
-<link rel="stylesheet" href="./styles/main.css">
 </head>
 <body class="bg-stone-50">
 <noscript>
@@ -35,10 +20,6 @@
 
 <div id="root"></div>
 
-<!-- App constants, demo cases, and main app bundle -->
-<script src="./js/constants.js"></script>
-<script src="./js/demo-cases.js"></script>
-<script type="text/babel" data-presets="env,react" src="./js/app.jsx"></script>
-
+<script type="module" src="/src/main.jsx"></script>
 </body>
 </html>

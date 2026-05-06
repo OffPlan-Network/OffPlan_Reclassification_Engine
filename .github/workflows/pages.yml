@@ -21,19 +21,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Stage site contents
-        run: |
-          set -euo pipefail
-          mkdir -p _site
-          # Files & folders that make up the deployable static site.
-          # Anything not listed here (docs/*.docx, *.zip, *.jsx reference
-          # implementation, etc.) is intentionally excluded from publish.
-          cp index.html _site/
-          touch _site/.nojekyll
-          mkdir -p _site/js _site/styles _site/data
-          cp js/*.js js/*.jsx _site/js/ 2>/dev/null || true
-          cp styles/*.css _site/styles/
-          cp data/*.csv _site/data/
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build site
+        run: npm run build
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
@@ -41,7 +39,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: _site
+          path: dist
 
   deploy:
     needs: build
