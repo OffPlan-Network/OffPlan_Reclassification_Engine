@@ -5,15 +5,13 @@ const STORAGE_BACKEND = (typeof import.meta !== 'undefined' && import.meta.env?.
 
 // Cheap stable hash of the inputs that affect the simulation outcome.
 // Used to detect when we need to re-fetch / re-compute.
-function fingerprint(employer, scenario, claims) {
+function fingerprint(employer, scenario, claims, mode) {
   const empSig = `${employer?.id}|${employer?.covered_lives}|${employer?.current_total_healthcare_spend}`;
   const scnSig = JSON.stringify(scenario || {});
-  // Cheap claims signature — length + summed allowed amount, same shape
-  // as the server-side cache fingerprint so cache keys align.
   let total = 0;
   for (const c of claims || []) total += Number(c?.allowed_amount) || 0;
   const claimsSig = `${(claims || []).length}:${Math.round(total)}`;
-  return `${empSig}::${scnSig}::${claimsSig}`;
+  return `${empSig}::${scnSig}::${claimsSig}::${mode || 'default'}`;
 }
 
 /**
@@ -34,6 +32,7 @@ export function useLiquidity({ employer, scenario, modeledClaims, options = {} }
   const [state, setState] = useState({ liquidity: null, loading: false, error: null, source: 'idle' });
   // Track the in-flight request so we can ignore stale responses.
   const inFlightFp = useRef(null);
+  const mode = options.mode || 'timing-resample';
 
   useEffect(() => {
     if (!employer?.id || !scenario || !modeledClaims?.length) {
@@ -41,7 +40,7 @@ export function useLiquidity({ employer, scenario, modeledClaims, options = {} }
       return;
     }
 
-    const fp = fingerprint(employer, scenario, modeledClaims);
+    const fp = fingerprint(employer, scenario, modeledClaims, mode);
     inFlightFp.current = fp;
 
     if (STORAGE_BACKEND !== 'api') {
@@ -51,7 +50,7 @@ export function useLiquidity({ employer, scenario, modeledClaims, options = {} }
           employer,
           scenario,
           modeledClaims,
-          options: { runs: options.runs || 1000 },
+          options: { runs: options.runs || 1000, mode },
         });
         if (inFlightFp.current === fp) {
           setState({ liquidity: liq, loading: false, error: null, source: 'local' });
@@ -75,6 +74,7 @@ export function useLiquidity({ employer, scenario, modeledClaims, options = {} }
         employerId: employer.id,
         scenario,
         runs: options.runs || 5000,
+        options: { mode },
       }),
     })
       .then(async (res) => {
@@ -94,7 +94,7 @@ export function useLiquidity({ employer, scenario, modeledClaims, options = {} }
       });
 
     return () => { cancelled = true; };
-  }, [employer?.id, employer?.covered_lives, employer?.current_total_healthcare_spend, scenario, modeledClaims, options.runs]);
+  }, [employer?.id, employer?.covered_lives, employer?.current_total_healthcare_spend, scenario, modeledClaims, options.runs, mode]);
 
   return state;
 }

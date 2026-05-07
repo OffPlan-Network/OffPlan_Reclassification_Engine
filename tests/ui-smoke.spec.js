@@ -163,6 +163,37 @@ test('6. /api/liquidity/simulate computes MRL server-side and caches by hash', a
   await request.delete('/api/storage/' + encodeURIComponent('claims:TEST_LIQ_API'));
 });
 
+test('7. Liquidity mode toggle switches between resample and tier-generated', async ({ page }) => {
+  await loadAbcDemo(page);
+  const mrlCard = page.getByTestId('mrl-card');
+  await expect(mrlCard).not.toContainText('computing', { timeout: 15_000 });
+  const resampleMrl = (await mrlCard.locator('.num').first().innerText()).trim();
+  expect(resampleMrl).toMatch(USD_RE);
+
+  // Method label should reflect timing-resample default.
+  const profile = page.getByTestId('liquidity-profile');
+  await expect(profile).toContainText(/timing-resample/);
+
+  // Switch to tier-generated.
+  await page.getByTestId('mode-toggle-tier').click();
+  await expect(mrlCard).not.toContainText('computing', { timeout: 15_000 });
+  await expect(profile).toContainText(/tier-generated/);
+
+  // Tier-generated MRL is a different number; assert it's still a USD value.
+  const tierMrl = (await mrlCard.locator('.num').first().innerText()).trim();
+  expect(tierMrl).toMatch(USD_RE);
+
+  // Calibration drift block must render in tier mode (banner fires when drift exceeds 10%).
+  await expect(profile).toContainText(/Calibration drift/);
+
+  // Switch back; verify the resample MRL returns. Numbers are deterministic
+  // for fixed inputs so we should get the same value as before.
+  await page.getByTestId('mode-toggle-resample').click();
+  await expect(mrlCard).not.toContainText('computing', { timeout: 15_000 });
+  const resampleMrl2 = (await mrlCard.locator('.num').first().innerText()).trim();
+  expect(resampleMrl2).toBe(resampleMrl);
+});
+
 test('5. /migrate.html migrates localStorage data into Postgres', async ({ page, request }) => {
   // Seed three keys into the page's localStorage as if a previous session
   // had been running with VITE_STORAGE_BACKEND=localStorage. We do this by

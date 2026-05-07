@@ -382,12 +382,22 @@ Every ingested claim is stamped with the IDs of the currently active versions, s
 
 ---
 
-## 11. Stochastic liquidity layer — v1 scope
+## 11. Stochastic liquidity layer — v2 scope
 
-The Monte Carlo in `src/engine/stochastic.js` ships two stochastic dimensions:
+The Monte Carlo in `src/engine/stochastic.js` ships **two simulation modes**, surfaced as a toggle on the Dashboard. They answer subtly different questions:
 
-1. **Timing variance.** Each modeled claim from the deterministic cascade is placed on a uniform-random month; stop-loss reimbursement arrives 3 months after the event. Across 1,000 runs we get the distribution of worst-month drawdown.
-2. **Catastrophic event tail overlay.** Each run draws `N ~ Poisson(λ × covered_lives)` extra catastrophic events (default λ=0.005 per member-year) with Pareto-distributed cost (default scale=$50K, shape=1.5 → mean $150K, P95 $369K, P99 $1.08M). Each event is split at the scenario's stop-loss attachment point — residual portion stays with the employer; stop-loss portion is reimbursed lagged.
+| Mode | Question answered | Calibration anchor | When to use |
+|---|---|---|---|
+| **`timing-resample`** (default) | "Given this employer's actual claims, how much liquidity did they need to weather that year's worst-month drawdown?" | The deterministic engine's residual_fund (matches by construction) | Primary number for CFO conversations; calibrated to actual claims |
+| **`tier-generated`** (v2) | "Given a typical SMB at this employer's size, how much liquidity should they expect?" | Industry-typical SMB event mix (`EVENT_TIER_CATALOG` in `src/constants.js`) | Sensitivity check; drift-pct shows how this employer compares to the SMB norm |
+
+The catalog has 11 tiers per Spec v1.2 §4 (T1 primary care through T11 maternity), with Poisson frequency × log-normal cost for non-catastrophic tiers and Pareto cost for inpatient T8/T9. Sampled events go through a simplified per-event OffPlan transformation — full member-aggregating cascade is skipped for performance (~5K runs in <1s).
+
+**Both modes share:**
+- Pareto catastrophic event tail overlay in timing-resample mode (default λ=0.005 per member-year, scale=$50K, shape=1.5 → mean $150K)
+- 3-month stop-loss reimbursement lag
+- Monthly resolution
+- 5,000 runs server-side / 1,000 client-side
 
 | Spec metric                       | Status in this build |
 |---                                |---                   |
@@ -399,11 +409,17 @@ The Monte Carlo in `src/engine/stochastic.js` ships two stochastic dimensions:
 | P50 / P75 / P90 / P95 / P99 of max cumulative drawdown | **Computed** — single-pass percentiles, no bootstrap CI yet |
 | Replenishment-aware Net Drawdown | **Computed** — monthly contribution = annual cash flow / 12 |
 | Reimbursement-lag Pre-Reimbursement Outflow | **Computed** — fixed 3-month lag (75-day approximation) |
-| Heavy-tail Pareto for inpatient catastrophic events | **Computed** — overlay only (default λ=0.005/member-yr, scale=$50K, shape=1.5) |
+| Heavy-tail Pareto for inpatient catastrophic events | **Computed** — overlay in timing-resample (default λ=0.005/member-yr, scale=$50K, shape=1.5); native to T8/T9 in tier-generated |
+| Full 11-tier event catalog with per-tier Poisson frequencies | **Computed** — `EVENT_TIER_CATALOG` in `src/constants.js` is the v2 mode's source of truth |
+| Calibration drift indicator | **Computed** — drift_pct + out_of_band flag returned per simulation; UI banner fires at ±10% |
+| NegBin frequency for over-dispersed tiers | **Not modeled** — Poisson only for T8 currently |
+| Per-event indemnity offset in tier-generated mode | **Not modeled** — drift-pct partially reflects this gap |
+| Member-aggregate stop-loss split in tier-generated mode | **Not modeled** — per-event split overstates recovery slightly |
 | Aggregate stop-loss corridor | **Not modeled** |
 | Chronic clustering / complication lag (Spec v1.2 §4.1) | **Not modeled** — `chronic_flag` is set in synthetic data but doesn't drive event clustering |
 | Bootstrap confidence intervals on percentiles | **Not computed** — single-run percentiles only |
-| Full 11-tier event catalog with per-tier Poisson/NegBin frequencies | **Not modeled** — overlay covers tail risk only; tiers 1–7 still come from the deterministic resample |
+| Spec v1.2 monthly-recurrence model for Specialty Rx (T10) | **Not modeled** — collapsed to per-event sampling for MVP |
+| Spec v1.2 bimodal Maternity/NICU split (T11) | **Not modeled** — single log-normal for MVP |
 
 **Where the overlay lands in calibration.** ABC Manufacturing at the Expected preset — MRL ≈ $280K, CER ≈ 5.5×, P99 ≈ $750K. Translating to PEPM-equivalent: MRL/lives/12 ≈ $144 PEPM, which sits between the Spec v1.2 worked example anchor ($115 PEPM) and the deterministic baseline ($85 PEPM residual + ~$130 stop-loss = $215 PEPM annual run-rate). Riverdale and XYZ produce comparable PEPM-equivalents under the same overlay. The overlay's λ is the single calibration knob; lower λ shifts the simulator back toward "this employer's actual claims" and higher λ toward "any plausible employer of this size."
 

@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { AlertTriangle, DollarSign, TrendingDown, Zap, Activity, Shield, Target, Users, Droplets, Loader2 } from 'lucide-react';
 import { fmtUSD, fmtNum, fmtPct } from '../ui/formatters.js';
 import { EmptyState } from '../ui/EmptyState.jsx';
@@ -65,14 +65,18 @@ export function DashboardScreen({ employer, scenario, result, classifiedClaims, 
   const annualSavings = hasValidBaseline ? savingsBaseline - totalOffPlanAnnual : null;
   const savingsPct = hasValidBaseline && savingsBaseline > 0 ? annualSavings / savingsBaseline : null;
 
-  // Stochastic liquidity layer (Liquidity Spec v1.2 §3). The hook routes to
-  // POST /api/liquidity/simulate when VITE_STORAGE_BACKEND=api (5K runs,
-  // server-side, Postgres-cached) and falls back to inline computation
-  // (1K runs, main thread) when running on the localStorage backend. The
-  // returned tuple includes loading/error/source so the UI can disclose
-  // where the number came from.
+  // Stochastic liquidity layer (Liquidity Spec v1.2 §3). Two modes:
+  //   - timing-resample: resamples the deterministic claims (calibrated to
+  //     this employer's actual year). Default.
+  //   - tier-generated: generates fresh events from EVENT_TIER_CATALOG
+  //     (calibrated to a typical SMB). Drift-pct shows how this employer
+  //     compares to the typical-SMB profile.
+  // The hook routes to POST /api/liquidity/simulate when VITE_STORAGE_BACKEND=api
+  // (5K runs, server-side, Postgres-cached) and falls back to inline
+  // computation (1K runs, main thread) on localStorage.
+  const [liquidityMode, setLiquidityMode] = useState('timing-resample');
   const { liquidity, loading: liquidityLoading, error: liquidityError, source: liquiditySource } =
-    useLiquidity({ employer, scenario, modeledClaims: result?.claims });
+    useLiquidity({ employer, scenario, modeledClaims: result?.claims, options: { mode: liquidityMode } });
 
   return (
     <div>
@@ -164,7 +168,7 @@ export function DashboardScreen({ employer, scenario, result, classifiedClaims, 
 
       {liquidity && (
         <div className="bg-white border border-stone-200 rounded-lg p-6 mb-6" data-testid="liquidity-profile">
-          <div className="flex items-start justify-between mb-4 flex-wrap gap-2">
+          <div className="flex items-start justify-between mb-4 flex-wrap gap-3">
             <div>
               <div className="flex items-center gap-2 mb-1">
                 <Droplets size={16} className="text-blue-600" />
@@ -172,21 +176,56 @@ export function DashboardScreen({ employer, scenario, result, classifiedClaims, 
               </div>
               <p className="text-xs text-stone-500 max-w-2xl leading-relaxed">
                 Distribution of max cumulative drawdown across {fmtNum(liquidity.meta.runs)} simulation runs.
-                Each run resamples claim timing with uniform monthly placement, a {liquidity.meta.lag_months}-month
-                stop-loss reimbursement lag,
-                {liquidity.tail?.enabled ? (
-                  <> and a Pareto-distributed catastrophic event overlay (λ={liquidity.tail.lambda_per_member_year} per member-year, ~{liquidity.tail.observed_events_per_run.toFixed(2)} events/run observed)</>
+                Each run uses uniform monthly placement and a {liquidity.meta.lag_months}-month stop-loss
+                reimbursement lag.
+                {liquidityMode === 'timing-resample' ? (
+                  <> Claims are <strong>resampled from this employer's deterministic year</strong>, then a Pareto tail overlay adds catastrophic events on top. Calibrated to actual claims.</>
                 ) : (
-                  <> and no tail-event overlay</>
+                  <> Events are <strong>generated fresh per run</strong> from a typical-SMB tier catalog (Poisson frequency × log-normal/Pareto cost). Drift % below shows how this employer's mix compares to the SMB norm.</>
                 )}
-                . P95 = MRL.
+                {' '}P95 = MRL.
               </p>
             </div>
-            <div className="text-right text-[11px] text-stone-500">
-              <div className="uppercase tracking-wider">Method</div>
-              <div className="font-medium text-stone-700 normal-case">{liquidity.meta.method}</div>
+            <div className="flex flex-col items-end gap-2">
+              <div data-testid="mode-toggle" className="inline-flex border border-stone-200 rounded overflow-hidden text-[11px]">
+                <button
+                  data-testid="mode-toggle-resample"
+                  onClick={() => setLiquidityMode('timing-resample')}
+                  className={`px-2.5 py-1 transition ${liquidityMode === 'timing-resample' ? 'bg-stone-900 text-white' : 'bg-white text-stone-600 hover:bg-stone-50'}`}
+                >
+                  Resample
+                </button>
+                <button
+                  data-testid="mode-toggle-tier"
+                  onClick={() => setLiquidityMode('tier-generated')}
+                  className={`px-2.5 py-1 transition border-l border-stone-200 ${liquidityMode === 'tier-generated' ? 'bg-stone-900 text-white' : 'bg-white text-stone-600 hover:bg-stone-50'}`}
+                >
+                  Tier catalog
+                </button>
+              </div>
+              <div className="text-right text-[11px] text-stone-500">
+                <div className="uppercase tracking-wider">Method</div>
+                <div className="font-medium text-stone-700 normal-case">{liquidity.meta.method}</div>
+              </div>
             </div>
           </div>
+
+          {liquidity.calibration && (
+            <div className={`mb-4 rounded border p-3 text-xs leading-relaxed ${liquidity.calibration.out_of_band ? 'bg-amber-50 border-amber-200 text-amber-900' : 'bg-emerald-50 border-emerald-200 text-emerald-900'}`}>
+              <div className="font-medium mb-0.5">
+                Calibration drift: {liquidity.calibration.drift_pct == null
+                  ? '—'
+                  : `${(liquidity.calibration.drift_pct * 100).toFixed(1)}%`}
+                {liquidity.calibration.out_of_band && <span> · outside ±{(liquidity.calibration.threshold_pct * 100).toFixed(0)}% threshold</span>}
+              </div>
+              <div className="opacity-80">
+                Simulator's mean residual ({fmtUSD(liquidity.calibration.simulated_mean_residual)}) vs deterministic engine ({fmtUSD(liquidity.calibration.deterministic_residual)}).
+                {liquidity.calibration.out_of_band
+                  ? ' This employer\'s claim mix differs from the typical-SMB catalog defaults; treat the tier-generated MRL as a sensitivity check rather than a primary number.'
+                  : ' Within tolerance; tier-generated and deterministic numbers agree on cost magnitude.'}
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
             {['p50', 'p75', 'p90', 'p95', 'p99'].map((p) => (
@@ -219,10 +258,20 @@ export function DashboardScreen({ employer, scenario, result, classifiedClaims, 
           </div>
 
           <div className="mt-4 text-[11px] text-stone-500 leading-relaxed border-t border-stone-100 pt-3">
-            <strong>Scope note:</strong> this MVP combines timing variance (resampling deterministic claim months) with a
-            Pareto-distributed catastrophic event overlay (λ={liquidity.tail?.lambda_per_member_year ?? '—'} per member-year,
-            shape={liquidity.tail?.pareto_shape ?? '—'}, scale={fmtUSD(liquidity.tail?.pareto_scale ?? 0)}). Chronic clustering,
-            complication lag, NegBin frequency for over-dispersed tiers, and aggregate stop-loss are still deferred
+            <strong>Scope note:</strong>{' '}
+            {liquidityMode === 'timing-resample' ? (
+              <>
+                Combines timing variance (resampling deterministic claim months) with a
+                Pareto-distributed catastrophic event overlay (λ={liquidity.tail?.lambda_per_member_year ?? '—'} per member-year,
+                shape={liquidity.tail?.pareto_shape ?? '—'}, scale={fmtUSD(liquidity.tail?.pareto_scale ?? 0)}).
+              </>
+            ) : (
+              <>
+                Generates events fresh per run from {liquidity.meta.catalog_length}-tier catalog (Poisson frequency × log-normal/Pareto cost).
+                Uses simplified per-event OffPlan transformation (skips indemnity offset and member-aggregate stop-loss split — those are why drift exists).
+              </>
+            )}
+            {' '}Chronic clustering, complication lag, NegBin frequency for over-dispersed tiers, and aggregate stop-loss are still deferred
             (see README §11). Use this as a directional CFO conversation anchor, not MGU underwriting input.
             Production replaces this with the full Liquidity Spec v1.2 stochastic layer.
           </div>

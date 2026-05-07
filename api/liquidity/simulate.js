@@ -55,7 +55,7 @@ function claimsSignature(claims) {
   return `${(claims || []).length}:${Math.round(total)}`;
 }
 
-function cacheKey(employerId, scenario, claimsSig, runs) {
+function cacheKey(employerId, scenario, claimsSig, runs, mode) {
   const scenarioHash = hashString([
     scenario?.name,
     scenario?.dpc_elimination_pct,
@@ -67,7 +67,7 @@ function cacheKey(employerId, scenario, claimsSig, runs) {
     scenario?.stop_loss_pepm,
     scenario?.risk_margin,
   ]);
-  return `liquidity_cache:${CACHE_VERSION}:${employerId}:${scenarioHash}:${hashString([claimsSig])}:${runs}`;
+  return `liquidity_cache:${CACHE_VERSION}:${employerId}:${scenarioHash}:${hashString([claimsSig])}:${mode || 'default'}:${runs}`;
 }
 
 export default async function handler(req, res) {
@@ -97,7 +97,8 @@ export default async function handler(req, res) {
 
     // 2. Cache lookup.
     const sig = claimsSignature(claims);
-    const key = cacheKey(employerId, scenario, sig, runs);
+    const mode = options?.mode || 'timing-resample';
+    const key = cacheKey(employerId, scenario, sig, runs, mode);
     if (!force) {
       const hit = await getOne(key);
       if (hit && hit.result) {

@@ -134,6 +134,56 @@ export const OFFPLAN_FIXED_OVERHEAD_PEPM =
   OFFPLAN_MEMBERSHIP_PEPM + TPA_PEPM + PBM_ADMIN_PEPM +
   FIRSTHEALTH_PEPM + MEDWATCH_PEPM + ACCIDENT_INDEMNITY_PEPM; // 282.20
 
+// Event tier catalog for the v2 stochastic mode (Liquidity Spec v1.2 §4).
+// Each tier defines:
+//   - lambda_per_member_year: Poisson rate per covered member per year
+//   - bucket: OffPlan classification bucket (A/B/C/D/E) — drives the
+//     deterministic transformation applied to each generated event
+//   - normalized_category: matches the engine's category strings so
+//     indemnity offset rules (which key on category) work unchanged
+//   - cost: distribution params. Either log-normal (mu, sigma) or
+//     Pareto Type I (scale, shape). Mean cost is documented for sanity.
+//
+// Calibration anchors: industry-typical SMB self-funded PMPY mix (~$6,000
+// in allowed claims, with the bulk in tiers 2/4/5/8 per published utilization
+// data). Per-employer mix varies; the runtime drift indicator surfaces when
+// simulated mean residual differs from deterministic residual by >10%.
+//
+// Defer per-spec for v2: complication clustering, chronic flare windows,
+// negative-binomial frequency, and per-tier indemnity matching beyond
+// what the existing rule set covers. README §11 documents the gap.
+// Distribution params produce the documented mean_cost: for log-normal,
+// mu = ln(mean) - sigma^2/2; for Pareto Type I, scale = mean * (shape-1)/shape.
+// Mean cost is documented for human sanity-check; the runtime engine resolves
+// from cost_mu/cost_sigma or pareto_scale/pareto_shape.
+export const EVENT_TIER_CATALOG = [
+  // T1 — Primary care. DPC absorbs entirely so the cost rarely materializes,
+  // but we still generate events so the cascade's DPC-elimination math sees them.
+  { tier: 1, label: 'Primary Care visit',         lambda_per_member_year: 3.5,  bucket: 'A', normalized_category: 'Primary Care',      cost_dist: 'lognormal', cost_mu: 5.22,  cost_sigma: 0.4, mean_cost: 200 },
+  // T2 — Specialty consult.
+  { tier: 2, label: 'Specialty consult',          lambda_per_member_year: 1.2,  bucket: 'B', normalized_category: 'Specialist Consult', cost_dist: 'lognormal', cost_mu: 5.42,  cost_sigma: 0.45, mean_cost: 250 },
+  // T3 — Lab.
+  { tier: 3, label: 'Lab',                        lambda_per_member_year: 2.0,  bucket: 'A', normalized_category: 'Lab',                cost_dist: 'lognormal', cost_mu: 4.30,  cost_sigma: 0.4, mean_cost: 80 },
+  // T4 — Advanced imaging.
+  { tier: 4, label: 'Imaging (advanced)',         lambda_per_member_year: 0.30, bucket: 'B', normalized_category: 'Imaging',            cost_dist: 'lognormal', cost_mu: 7.23,  cost_sigma: 0.55, mean_cost: 1600 },
+  // T5 — ASC outpatient procedure.
+  { tier: 5, label: 'ASC outpatient procedure',   lambda_per_member_year: 0.10, bucket: 'B', normalized_category: 'Outpatient Surgery', cost_dist: 'lognormal', cost_mu: 8.23,  cost_sigma: 0.7, mean_cost: 4800 },
+  // T6 — ER, low acuity.
+  { tier: 6, label: 'ER visit (low acuity)',      lambda_per_member_year: 0.14, bucket: 'C', normalized_category: 'ER',                 cost_dist: 'lognormal', cost_mu: 7.37,  cost_sigma: 0.5, mean_cost: 1800 },
+  // T7 — ER, high acuity.
+  { tier: 7, label: 'ER visit (high acuity)',     lambda_per_member_year: 0.05, bucket: 'C', normalized_category: 'ER',                 cost_dist: 'lognormal', cost_mu: 8.53,  cost_sigma: 0.7, mean_cost: 6500 },
+  // T8 — Inpatient admission. Heavy tail. Pareto scale = mean*(shape-1)/shape.
+  { tier: 8, label: 'Inpatient admission',        lambda_per_member_year: 0.030, bucket: 'E', normalized_category: 'Inpatient',         cost_dist: 'pareto',    pareto_scale: 8000,  pareto_shape: 1.4, mean_cost: 28000 },
+  // T9 — Inpatient catastrophic. Rare, very heavy tail.
+  { tier: 9, label: 'Inpatient catastrophic',     lambda_per_member_year: 0.003, bucket: 'E', normalized_category: 'Inpatient',         cost_dist: 'pareto',    pareto_scale: 41538, pareto_shape: 1.3, mean_cost: 180000 },
+  // T10 — Specialty Rx (simplified to per-event sampling for MVP; the spec's
+  // monthly-recurrence model is deferred).
+  { tier: 10, label: 'Specialty Rx fill',         lambda_per_member_year: 0.30, bucket: 'D', normalized_category: 'Specialty Rx',       cost_dist: 'lognormal', cost_mu: 7.98,  cost_sigma: 0.6, mean_cost: 3500 },
+  // T11 — Maternity / NICU. Simplified to single log-normal for MVP; bimodal
+  // routine vs NICU treatment deferred.
+  { tier: 11, label: 'Maternity / delivery',      lambda_per_member_year: 0.010, bucket: 'E', normalized_category: 'Inpatient',         cost_dist: 'lognormal', cost_mu: 9.30,  cost_sigma: 0.8, mean_cost: 15000 },
+];
+
 // Catastrophic-event tail overlay parameters for the stochastic liquidity
 // layer. Each Monte Carlo run draws N ~ Poisson(lambda × covered_lives)
 // extra catastrophic events on top of the resampled deterministic claims.
