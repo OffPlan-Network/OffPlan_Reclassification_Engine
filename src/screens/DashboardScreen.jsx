@@ -228,14 +228,22 @@ export function DashboardScreen({ employer, scenario, result, classifiedClaims, 
           )}
 
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
-            {['p50', 'p75', 'p90', 'p95', 'p99'].map((p) => (
-              <div key={p} className={`border rounded p-3 ${p === 'p95' ? 'bg-emerald-50 border-emerald-200' : 'border-stone-200'}`}>
-                <div className="text-[10px] uppercase tracking-wider text-stone-500 mb-1">
-                  {p.toUpperCase()} {p === 'p95' && <span className="text-emerald-700 normal-case">· MRL</span>}
+            {['p50', 'p75', 'p90', 'p95', 'p99'].map((p) => {
+              const ci = liquidity.percentiles_ci?.[p];
+              return (
+                <div key={p} className={`border rounded p-3 ${p === 'p95' ? 'bg-emerald-50 border-emerald-200' : 'border-stone-200'}`}>
+                  <div className="text-[10px] uppercase tracking-wider text-stone-500 mb-1">
+                    {p.toUpperCase()} {p === 'p95' && <span className="text-emerald-700 normal-case">· MRL</span>}
+                  </div>
+                  <div className="font-mono num text-base text-stone-900">{fmtUSD(liquidity.percentiles[p])}</div>
+                  {ci && ci.lo != null && ci.hi != null && (
+                    <div className="text-[10px] text-stone-500 mt-0.5 font-mono num">
+                      95% CI: {fmtUSD(ci.lo)} – {fmtUSD(ci.hi)}
+                    </div>
+                  )}
                 </div>
-                <div className="font-mono num text-base text-stone-900">{fmtUSD(liquidity.percentiles[p])}</div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">

@@ -66,6 +66,43 @@ function percentile(sorted, p) {
   return sorted[idx];
 }
 
+// Bootstrap 95% confidence intervals on a set of percentiles. Resamples
+// `samples` (Float64Array) with replacement M times, computes the
+// requested percentile for each resample, and returns the 2.5% / 97.5%
+// quantiles of those bootstrap percentile estimates.
+function bootstrapPercentileCIs(samples, percentilesToCompute, M = 500, rng = Math.random) {
+  const n = samples.length;
+  if (n === 0) {
+    const empty = {};
+    for (const p of percentilesToCompute) empty[p] = { lo: 0, hi: 0 };
+    return empty;
+  }
+  // Per-percentile array of bootstrap estimates.
+  const estimates = {};
+  for (const p of percentilesToCompute) estimates[p] = new Float64Array(M);
+
+  const resampled = new Float64Array(n);
+  for (let m = 0; m < M; m++) {
+    for (let i = 0; i < n; i++) {
+      resampled[i] = samples[Math.floor(rng() * n)];
+    }
+    const sorted = Array.from(resampled).sort((a, b) => a - b);
+    for (const p of percentilesToCompute) {
+      estimates[p][m] = percentile(sorted, p);
+    }
+  }
+
+  const out = {};
+  for (const p of percentilesToCompute) {
+    const sorted = Array.from(estimates[p]).sort((a, b) => a - b);
+    out[p] = {
+      lo: percentile(sorted, 2.5),
+      hi: percentile(sorted, 97.5),
+    };
+  }
+  return out;
+}
+
 // Knuth's Poisson sampler. Cheap and exact for small lambda (we expect
 // lambda × lives in single digits for SMB populations).
 function samplePoisson(lambda, rng) {
@@ -541,6 +578,11 @@ function simulateLiquidityTimingResample({ employer, scenario, modeledClaims, op
 
   const meanMonthlyOutflow = monthlyOutflowCount > 0 ? monthlyOutflowSum / monthlyOutflowCount : 0;
 
+  // Bootstrap 95% CIs on each percentile. Uses a fresh PRNG seeded off
+  // the main seed so the CI bounds are reproducible.
+  const bootstrapRng = mulberry32((seed ^ 0xb007517a) >>> 0);
+  const percentilesCi = bootstrapPercentileCIs(mrls, [50, 75, 90, 95, 99], 500, bootstrapRng);
+
   // ELF = Equivalent Level-Funded Total Cost. Per Liquidity Spec §3.1, this
   // is what the employer would pre-fund under a traditional level-funded
   // plan, total-to-total. We use current_total_healthcare_spend as the best
@@ -555,6 +597,12 @@ function simulateLiquidityTimingResample({ employer, scenario, modeledClaims, op
     lcr: meanMonthlyOutflow > 0 ? mrl / meanMonthlyOutflow : null,
     scr: p75 > 0 ? mrl / p75 : null,
     percentiles: { p50, p75, p90, p95, p99 },
+    percentiles_ci: {
+      p50: percentilesCi[50], p75: percentilesCi[75], p90: percentilesCi[90],
+      p95: percentilesCi[95], p99: percentilesCi[99],
+      bootstrap_iterations: 500,
+      level: 0.95,
+    },
     mean_monthly_outflow: meanMonthlyOutflow,
     monthly_contribution: monthlyContribution,
     annual_cash_flow: totalAnnualCashFlow,
@@ -714,6 +762,9 @@ function simulateLiquidityTierGenerated({ employer, scenario, modeledClaims, opt
   const meanMonthlyOutflow = monthlyOutflowCount > 0 ? monthlyOutflowSum / monthlyOutflowCount : 0;
   const meanAnnualResidual = annualResiduals.reduce((s, x) => s + x, 0) / runs;
 
+  const bootstrapRng = mulberry32((seed ^ 0xb007517a) >>> 0);
+  const percentilesCi = bootstrapPercentileCIs(mrls, [50, 75, 90, 95, 99], 500, bootstrapRng);
+
   // Calibration: compare simulator's mean residual to the deterministic
   // engine's residual_fund (passed in via modeledClaims). Surfaces drift
   // as a fraction; UI banner fires when |drift| > threshold.
@@ -735,6 +786,12 @@ function simulateLiquidityTierGenerated({ employer, scenario, modeledClaims, opt
     lcr: meanMonthlyOutflow > 0 ? mrl / meanMonthlyOutflow : null,
     scr: p75 > 0 ? mrl / p75 : null,
     percentiles: { p50, p75, p90, p95, p99 },
+    percentiles_ci: {
+      p50: percentilesCi[50], p75: percentilesCi[75], p90: percentilesCi[90],
+      p95: percentilesCi[95], p99: percentilesCi[99],
+      bootstrap_iterations: 500,
+      level: 0.95,
+    },
     mean_monthly_outflow: meanMonthlyOutflow,
     monthly_contribution: monthlyContribution,
     annual_cash_flow: expectedAnnualCashFlow,
