@@ -75,6 +75,11 @@ export const DEFAULT_INDEMNITY_BENEFITS = {
   "Ambulance": { benefit: 500, maxPerYear: 2 },
 };
 
+// Stop-loss anchor is $100 PEPM (Section 2 working assumption).
+// Conservative reflects Section 3 disclosure: "carriers will price initial coverage
+// based on conservative assumptions until population experience validates the lower
+// claims fund expectation, which may push initial stop-loss premiums above $100".
+// Aggressive reflects post-experience pricing once a population has matured.
 export const SCENARIO_PRESETS = {
   conservative: {
     name: "Conservative",
@@ -84,9 +89,9 @@ export const SCENARIO_PRESETS = {
     cashpay_discount_factor: 0.70,
     indemnity_enabled: true,
     attachment_point: 75000,
-    stop_loss_pepm: 175,
+    stop_loss_pepm: 130,
     risk_margin: 1.40,
-    description: "Underwriting-safe. Maximum funding buffer for the residual layer.",
+    description: "Pre-experience underwriting. Stop-loss priced at conservative carrier markup over the $100 anchor.",
   },
   expected: {
     name: "Expected",
@@ -96,9 +101,9 @@ export const SCENARIO_PRESETS = {
     cashpay_discount_factor: 0.50,
     indemnity_enabled: true,
     attachment_point: 50000,
-    stop_loss_pepm: 130,
+    stop_loss_pepm: 100,
     risk_margin: 1.25,
-    description: "Balanced view. The base case for employer conversations.",
+    description: "Balanced view. Anchored to the $582.20 all-in stack and $200 PMPM claims fund working assumption.",
   },
   aggressive: {
     name: "Aggressive",
@@ -108,14 +113,26 @@ export const SCENARIO_PRESETS = {
     cashpay_discount_factor: 0.40,
     indemnity_enabled: true,
     attachment_point: 50000,
-    stop_loss_pepm: 100,
+    stop_loss_pepm: 85,
     risk_margin: 1.10,
-    description: "Maximum efficiency. Demonstrates the full structural ceiling.",
+    description: "Post-experience efficiency ceiling. Stop-loss reflects validated population experience.",
   },
 };
 
-export const OFFPLAN_MEMBERSHIP_PEPM = 195;
-export const TPA_PEPM = 40;
+// OffPlan stack components — anchors per "OffPlan Financial Model Assumptions
+// Reference (Source of Truth)" May 2026, Section 2 (Complete Stack PEPM Build).
+// Membership locked at $185 (down from prior $195 era). Other components are
+// confirmed partner pricing or pre-launch working assumptions; flagged below.
+export const OFFPLAN_MEMBERSHIP_PEPM = 185;       // Locked
+export const TPA_PEPM = 40;                       // Yuzu confirmed
+export const PBM_ADMIN_PEPM = 8;                  // Working assumption, finalize w/ Yuzu PBM RFP
+export const FIRSTHEALTH_PEPM = 5.95;             // Yuzu rate card, confirmed
+export const MEDWATCH_PEPM = 3.25;                // Yuzu rate card, confirmed
+export const ACCIDENT_INDEMNITY_PEPM = 40;        // Working assumption, finalize w/ TownHealth or equivalent
+// Sum of the above (excluding stop-loss + claims fund, which are scenario-dependent).
+export const OFFPLAN_FIXED_OVERHEAD_PEPM =
+  OFFPLAN_MEMBERSHIP_PEPM + TPA_PEPM + PBM_ADMIN_PEPM +
+  FIRSTHEALTH_PEPM + MEDWATCH_PEPM + ACCIDENT_INDEMNITY_PEPM; // 282.20
 
 export const INPUT_MODES = {
   FULL:    { id: "full",    label: "Full Claims",     confidence: "high",   description: "Member-level CPT-line claims" },

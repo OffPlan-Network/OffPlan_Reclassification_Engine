@@ -15,7 +15,7 @@ export const DEMO_CASES = [
     label: "ABC Manufacturing",
     tagline: "Self-funded · Full Claims (Mode 1)",
     blurb:
-      "Mid-size Georgia manufacturer with TPA-extracted claim lines. Demonstrates the high-confidence path: every claim carries CPT-level detail and member-level stop-loss aggregation.",
+      "Mid-size Georgia manufacturer running near the industry traditional self-funded benchmark (~$785 PEPM Y1). TPA-extracted claim lines exercise the high-confidence path: CPT detail and member-level stop-loss aggregation.",
     employer: {
       id: "DEMO_ABC",
       name: "ABC Manufacturing",
@@ -24,8 +24,8 @@ export const DEMO_CASES = [
       employee_count: 75,
       covered_lives: 162,
       current_funding_model: "self_funded",
-      historical_claims_spend: 950000,
-      current_total_healthcare_spend: 1187450,
+      historical_claims_spend: 985000,
+      current_total_healthcare_spend: 1525000,
       baseline_spend_type: "total_plan_cost",
       includes_stop_loss: true,
       includes_admin_fees: true,
@@ -45,7 +45,7 @@ export const DEMO_CASES = [
     label: "XYZ Construction",
     tagline: "Level-funded · Partial Summary (Mode 2)",
     blurb:
-      "Florida bonded contractor. Broker provided category totals only — no member-level claims. Engine decomposes summaries into representative claim lines and downgrades confidence accordingly.",
+      "Florida bonded contractor at the industry level-funded benchmark (~$715 PEPM Y1). Broker provided category totals only — no member-level claims. Engine decomposes summaries into representative claim lines and downgrades confidence accordingly.",
     employer: {
       id: "DEMO_XYZ",
       name: "XYZ Construction",
@@ -55,7 +55,7 @@ export const DEMO_CASES = [
       covered_lives: 98,
       current_funding_model: "level_funded",
       historical_claims_spend: 540000,
-      current_total_healthcare_spend: 612000,
+      current_total_healthcare_spend: 840000,
       baseline_spend_type: "level_funded_contribution",
       includes_stop_loss: true,
       includes_admin_fees: true,
@@ -88,7 +88,7 @@ export const DEMO_CASES = [
     label: "Riverdale Hospitality Group",
     tagline: "Fully insured · Modeled (Mode 3)",
     blurb:
-      "Texas hospitality group at quote stage with no claims access. Engine synthesizes a benchmark-scaled dataset. Output is illustrative, low confidence — for directional broker conversations only.",
+      "Texas hospitality group at quote stage with no claims access. Premium runs near the industry fully-insured BUCA benchmark (~$975 PEPM Y1). Engine synthesizes a benchmark-scaled dataset. Output is illustrative, low confidence — for directional broker conversations only.",
     employer: {
       id: "DEMO_RHG",
       name: "Riverdale Hospitality Group",
@@ -97,8 +97,8 @@ export const DEMO_CASES = [
       employee_count: 128,
       covered_lives: 205,
       current_funding_model: "fully_insured",
-      historical_claims_spend: 1080000,
-      current_total_healthcare_spend: 1750000,
+      historical_claims_spend: 1110000,
+      current_total_healthcare_spend: 2400000,
       baseline_spend_type: "total_premium",
       includes_stop_loss: false,
       includes_admin_fees: false,

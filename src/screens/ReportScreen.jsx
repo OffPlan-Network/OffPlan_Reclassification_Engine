@@ -2,7 +2,15 @@ import { AlertTriangle, FileDown } from 'lucide-react';
 import { fmtUSD, fmtNum, fmtPct } from '../ui/formatters.js';
 import { BucketBadge } from '../ui/BucketBadge.jsx';
 import { InputModeBadge, ProvenanceFooter } from '../ui/Provenance.jsx';
-import { SCENARIO_PRESETS, OFFPLAN_MEMBERSHIP_PEPM, TPA_PEPM } from '../constants.js';
+import {
+  SCENARIO_PRESETS,
+  OFFPLAN_MEMBERSHIP_PEPM,
+  TPA_PEPM,
+  PBM_ADMIN_PEPM,
+  FIRSTHEALTH_PEPM,
+  MEDWATCH_PEPM,
+  ACCIDENT_INDEMNITY_PEPM,
+} from '../constants.js';
 
 export function ReportScreen({ employer, scenario, result, classifiedClaims, inputModeRecord,
                                 activePricingVersion, activeRuleVersion, activeIndemnityVersion, activeBenchmarkVersion }) {
@@ -12,7 +20,15 @@ export function ReportScreen({ employer, scenario, result, classifiedClaims, inp
   const lives = Number(employer.covered_lives) || 1;
   const residualPEPM = a.residual_fund / lives / 12;
   const recommendedPEPM = residualPEPM * scenario.risk_margin;
-  const totalOffPlanPEPM = OFFPLAN_MEMBERSHIP_PEPM + recommendedPEPM + scenario.stop_loss_pepm + TPA_PEPM;
+  const totalOffPlanPEPM =
+    OFFPLAN_MEMBERSHIP_PEPM +
+    PBM_ADMIN_PEPM +
+    FIRSTHEALTH_PEPM +
+    MEDWATCH_PEPM +
+    ACCIDENT_INDEMNITY_PEPM +
+    TPA_PEPM +
+    scenario.stop_loss_pepm +
+    recommendedPEPM;
   const totalOffPlanAnnual = totalOffPlanPEPM * lives * 12;
   const rawBaseline = Number(employer.current_total_healthcare_spend);
   const hasValidBaseline = rawBaseline > 0;
@@ -217,28 +233,48 @@ export function ReportScreen({ employer, scenario, result, classifiedClaims, inp
           </thead>
           <tbody>
             <tr className="border-b border-stone-100">
-              <td className="px-4 py-3 font-medium">OffPlan Membership</td>
-              <td className="px-4 py-3 text-stone-600">Unlimited primary care, chronic management, navigation</td>
+              <td className="px-4 py-3 font-medium">OffPlan DPC Membership (adult)</td>
+              <td className="px-4 py-3 text-stone-600">Unlimited primary care, chronic management, navigation · locked</td>
               <td className="px-4 py-3 text-right font-mono num">{fmtUSD(OFFPLAN_MEMBERSHIP_PEPM, 2)}</td>
             </tr>
             <tr className="border-b border-stone-100">
-              <td className="px-4 py-3 font-medium">Residual Funding · placeholder</td>
-              <td className="px-4 py-3 text-stone-600">v3.0 deterministic placeholder ({scenario.risk_margin.toFixed(2)}x margin) · production replaces with stochastic Min Required Liquidity</td>
-              <td className="px-4 py-3 text-right font-mono num">{fmtUSD(recommendedPEPM, 2)}</td>
+              <td className="px-4 py-3 font-medium">PBM Admin</td>
+              <td className="px-4 py-3 text-stone-600">Transparent pass-through PBM admin · working assumption (Yuzu RFP)</td>
+              <td className="px-4 py-3 text-right font-mono num">{fmtUSD(PBM_ADMIN_PEPM, 2)}</td>
+            </tr>
+            <tr className="border-b border-stone-100">
+              <td className="px-4 py-3 font-medium">FirstHealth Network Access</td>
+              <td className="px-4 py-3 text-stone-600">OOA fallback network · Yuzu rate card</td>
+              <td className="px-4 py-3 text-right font-mono num">{fmtUSD(FIRSTHEALTH_PEPM, 2)}</td>
+            </tr>
+            <tr className="border-b border-stone-100">
+              <td className="px-4 py-3 font-medium">MedWatch UM/CM</td>
+              <td className="px-4 py-3 text-stone-600">Inpatient + outpatient utilization & case management · Yuzu rate card</td>
+              <td className="px-4 py-3 text-right font-mono num">{fmtUSD(MEDWATCH_PEPM, 2)}</td>
+            </tr>
+            <tr className="border-b border-stone-100">
+              <td className="px-4 py-3 font-medium">Accident + Hospital Indemnity</td>
+              <td className="px-4 py-3 text-stone-600">Gap event funding · working assumption</td>
+              <td className="px-4 py-3 text-right font-mono num">{fmtUSD(ACCIDENT_INDEMNITY_PEPM, 2)}</td>
+            </tr>
+            <tr className="border-b border-stone-100">
+              <td className="px-4 py-3 font-medium">TPA (Yuzu)</td>
+              <td className="px-4 py-3 text-stone-600">Claims administration for non-DPC services · confirmed</td>
+              <td className="px-4 py-3 text-right font-mono num">{fmtUSD(TPA_PEPM, 2)}</td>
             </tr>
             <tr className="border-b border-stone-100">
               <td className="px-4 py-3 font-medium">Stop-Loss</td>
-              <td className="px-4 py-3 text-stone-600">Catastrophic protection above {fmtUSD(scenario.attachment_point)}</td>
+              <td className="px-4 py-3 text-stone-600">Catastrophic protection above {fmtUSD(scenario.attachment_point)} · finalize at quote</td>
               <td className="px-4 py-3 text-right font-mono num">{fmtUSD(scenario.stop_loss_pepm, 2)}</td>
             </tr>
             <tr className="border-b border-stone-100">
-              <td className="px-4 py-3 font-medium">TPA</td>
-              <td className="px-4 py-3 text-stone-600">Claims administration for non-DPC services</td>
-              <td className="px-4 py-3 text-right font-mono num">{fmtUSD(TPA_PEPM, 2)}</td>
+              <td className="px-4 py-3 font-medium">Claims Fund · placeholder</td>
+              <td className="px-4 py-3 text-stone-600">Residual PEPM × {scenario.risk_margin.toFixed(2)}x margin · v3.0 deterministic placeholder; production replaces with stochastic Min Required Liquidity ($200 PMPM working anchor)</td>
+              <td className="px-4 py-3 text-right font-mono num">{fmtUSD(recommendedPEPM, 2)}</td>
             </tr>
             <tr className="bg-stone-50 border-b border-stone-100 font-medium">
               <td className="px-4 py-3">Total OffPlan PEPM</td>
-              <td className="px-4 py-3 text-stone-600">Per employee per month</td>
+              <td className="px-4 py-3 text-stone-600">Per employee per month · doc anchor $582.20 (expected)</td>
               <td className="px-4 py-3 text-right font-mono num text-lg">{fmtUSD(totalOffPlanPEPM, 2)}</td>
             </tr>
           </tbody>

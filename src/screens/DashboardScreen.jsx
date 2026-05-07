@@ -7,6 +7,11 @@ import {
   SCENARIO_PRESETS,
   OFFPLAN_MEMBERSHIP_PEPM,
   TPA_PEPM,
+  PBM_ADMIN_PEPM,
+  FIRSTHEALTH_PEPM,
+  MEDWATCH_PEPM,
+  ACCIDENT_INDEMNITY_PEPM,
+  OFFPLAN_FIXED_OVERHEAD_PEPM,
   DEFAULT_CASH_PRICES,
   DEFAULT_INDEMNITY_BENEFITS,
   DEFAULT_REPRICE_FACTORS,
@@ -24,7 +29,7 @@ export function DashboardScreen({ employer, scenario, result, classifiedClaims, 
       const r = runCalculation(classifiedClaims, preset, DEFAULT_CASH_PRICES, DEFAULT_INDEMNITY_BENEFITS, DEFAULT_REPRICE_FACTORS);
       const resPEPM = r.aggregates.residual_fund / lives / 12;
       const recPEPM = resPEPM * preset.risk_margin;
-      const totalPEPM = OFFPLAN_MEMBERSHIP_PEPM + recPEPM + preset.stop_loss_pepm + TPA_PEPM;
+      const totalPEPM = OFFPLAN_FIXED_OVERHEAD_PEPM + preset.stop_loss_pepm + recPEPM;
       return {
         key,
         name: preset.name,
@@ -51,7 +56,7 @@ export function DashboardScreen({ employer, scenario, result, classifiedClaims, 
   const a = result.aggregates;
   const residualPEPM = a.residual_fund / lives / 12;
   const recommendedPEPM = residualPEPM * scenario.risk_margin;
-  const totalOffPlanPEPM = OFFPLAN_MEMBERSHIP_PEPM + recommendedPEPM + scenario.stop_loss_pepm + TPA_PEPM;
+  const totalOffPlanPEPM = OFFPLAN_FIXED_OVERHEAD_PEPM + scenario.stop_loss_pepm + recommendedPEPM;
   const totalOffPlanAnnual = totalOffPlanPEPM * lives * 12;
   const rawBaseline = Number(employer?.current_total_healthcare_spend);
   const hasValidBaseline = rawBaseline > 0;
@@ -251,7 +256,7 @@ export function DashboardScreen({ employer, scenario, result, classifiedClaims, 
           icon={DollarSign} accent="stone"
           label="Total OffPlan PEPM"
           value={fmtUSD(totalOffPlanPEPM, 2)}
-          sub={`Membership + Funding (placeholder) + S/L + TPA`}
+          sub={`Membership + PBM/Network/UM + Indemnity + TPA + S/L + Claims Fund`}
         />
         <KPICard
           icon={Users} accent="emerald"

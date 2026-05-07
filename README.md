@@ -205,19 +205,30 @@ The dashboard and report both **refuse to compute savings** until `current_total
 
 ## 6. The OffPlan stack (what the employer pays under OffPlan)
 
+Anchored to **`OffPlan Financial Model Assumptions Reference (Source of Truth)` — May 2026, Section 2 (Complete Stack PEPM Build)**. The Expected scenario lands at the doc's **$582.20 all-in PEPM** anchor (single coverage).
+
 ```
+Fixed overhead (OFFPLAN_FIXED_OVERHEAD_PEPM = $282.20):
+      OFFPLAN_MEMBERSHIP_PEPM           $185.00   locked (Section 1)
+    + PBM_ADMIN_PEPM                    $  8.00   working assumption — finalize w/ Yuzu PBM RFP
+    + FIRSTHEALTH_PEPM                  $  5.95   confirmed — Yuzu rate card (OOA fallback)
+    + MEDWATCH_PEPM                     $  3.25   confirmed — Yuzu rate card (UM/CM)
+    + ACCIDENT_INDEMNITY_PEPM           $ 40.00   working assumption — finalize w/ TownHealth or equivalent
+    + TPA_PEPM                          $ 40.00   confirmed — Yuzu
+
 Total OffPlan PEPM =
-      OFFPLAN_MEMBERSHIP_PEPM           ($195 default — `src/constants.js`)
+      OFFPLAN_FIXED_OVERHEAD_PEPM       ($282.20)
+    + scenario.stop_loss_pepm           ($85 / $100 / $130 by preset)
     + recommended_funding_pepm          (residual_pepm × scenario.risk_margin)†
-    + scenario.stop_loss_pepm           ($100 / $130 / $175 by preset)
-    + TPA_PEPM                          ($40 default)
 
 Annual: Total OffPlan PEPM × covered_lives × 12
 
 Net Annual Savings = current_total_healthcare_spend − OffPlan Annual
 ```
 
-† **The `risk_margin × residual_pepm` step is the deprecated v3.0/v3.1 funding construct.** Master Spec v3.3 §6.6 retires it in favor of stochastic Min Required Liquidity. The dashboard labels it "deprecated intermediate placeholder" and shows Min Required Liquidity as `—` until the stochastic layer ships. Treat the resulting funding number as a **conservative, deterministic placeholder** — adequate for an order-of-magnitude employer conversation, not for an MGU underwriting submission.
+Stop-loss preset spread reflects the doc's Section 3 disclosure that *"carriers will price initial coverage based on conservative assumptions until population experience validates the lower claims fund expectation, which may push initial stop-loss premiums above the $100 PEPM working assumption."* Expected ($100) sits at the doc anchor; Conservative ($130) overshoots the anchor for pre-experience underwriting; Aggressive ($85) reflects post-experience pricing once population data validates.
+
+† **The `risk_margin × residual_pepm` step is the deprecated v3.0/v3.1 funding construct.** Master Spec v3.3 §6.6 retires it in favor of stochastic Min Required Liquidity. The doc's working anchor for this layer is **$200 PMPM** (range $140–$240, Section 3). The dashboard labels it "deprecated intermediate placeholder" and shows Min Required Liquidity as `—` until the stochastic layer ships. Treat the resulting funding number as a **conservative, deterministic placeholder** — adequate for an order-of-magnitude employer conversation, not for an MGU underwriting submission.
 
 ---
 
@@ -242,11 +253,13 @@ Inputs (`src/demo-cases.js`):
 ```
 covered_lives                  = 162
 employee_count                 = 75
-historical_claims_spend        = $950,000
-current_total_healthcare_spend = $1,187,450  (self-funded total plan cost)
+historical_claims_spend        = $985,000     (claims-fund portion)
+current_total_healthcare_spend = $1,525,000   (self-funded total plan cost — ~$785 PEPM Y1
+                                              traditional self-funded benchmark per the
+                                              Source-of-Truth doc Section 6)
 ```
 
-Frozen demo JSON (`public/data/demo_abc_manufacturing_claims.json`) contains 1,758 deterministic claim lines totaling $983,370 — 3.5 % above the $950K nominal target (drift introduced when the synthetic distribution was rebalanced to better match real SMB benchmarks). Because the demo file is seeded, the math is reproducible across runs.
+Frozen demo JSON (`public/data/demo_abc_manufacturing_claims.json`) contains 1,758 deterministic claim lines totaling $983,370 — within rounding of the $985K nominal claims target. Because the demo file is seeded, the math is reproducible across runs.
 
 ### 8.1 Bucket distribution (after `normalizeAndClassify`)
 
@@ -273,16 +286,20 @@ Each row below is `runCalculation()` actually executed against the seeded JSON. 
 | **Residual fund**            | **$356,070** | **$272,547** | **$248,893** |
 | Residual PEPM                | $183.16      | $140.20      | $128.03    |
 | Funding × `risk_margin` †    | $256.43      | $175.25      | $140.83    |
-| **Total OffPlan PEPM**       | **$666.43**  | **$540.25**  | **$475.83** |
-| Total OffPlan Annual         | $1,295,538   | $1,050,243   | $925,022   |
-| **Net Annual Savings**       | **−$108,088** | **+$137,207** | **+$262,428** |
-| As % of current total spend  | −9.1 %       | +11.6 %      | +22.1 %    |
+| **Total OffPlan PEPM**       | **$668.63**  | **$557.45**  | **$508.03** |
+| Total OffPlan Annual         | $1,299,815   | $1,083,680   | $987,619   |
+| **Net Annual Savings**       | **+$225,185** | **+$441,320** | **+$537,381** |
+| As % of current total spend  | +14.8 %      | +28.9 %      | +35.2 %    |
 
-† Deprecated v3.0/v3.1 placeholder. `Total OffPlan PEPM = $195 membership + (residual_pepm × risk_margin) + scenario.stop_loss_pepm + $40 TPA`. Replaced by stochastic Min Required Liquidity in the spec; not yet computed here. See §11 and the calibration note at the end of §8.3.
+† Deprecated v3.0/v3.1 placeholder. `Total OffPlan PEPM = $282.20 fixed overhead (membership + PBM + FirstHealth + MedWatch + Accident/Indemnity + TPA) + scenario.stop_loss_pepm + (residual_pepm × risk_margin)`. Replaced by stochastic Min Required Liquidity in the spec; not yet computed here. See §6, §11, and the calibration note at the end of §8.3.
+
+The Expected funding × `risk_margin` of **$175.25 PEPM** sits within the Source-of-Truth doc's $140–$240 range with $200 PMPM working anchor (Section 3). Combined with the $382.20 fixed + stop-loss subtotal, Expected lands at **$557.45 PEPM** — within $25 of the doc's $582.20 all-in anchor.
 
 ### 8.3 Reading the result
 
-Under the **Expected** preset, ABC delivers **+$137K (11.6 %)** of annual savings vs the $1.19M current total — driven primarily by cash-pay repricing on Bucket B (**$236K** of savings, ~57 % compression on the $415K of Bucket-B allowed) and the structural shift of catastrophic dollars into the stop-loss layer (**$255K**). DPC absorbs another **$97K**; indemnity offsets **$104K** of mid-acuity event cost. **Conservative** runs −$108K (−9.1 %) — pessimistic stop-loss premium ($175 PEPM) plus maximum 1.40× risk-margin amplification consume the cascade savings; **Aggressive** produces **+$262K (+22.1 %)**.
+Under the **Expected** preset, ABC delivers **+$441K (28.9 %)** of annual savings vs the $1.525M current total — driven primarily by cash-pay repricing on Bucket B (**$236K** of savings, ~57 % compression on the $415K of Bucket-B allowed) and the structural shift of catastrophic dollars into the stop-loss layer (**$255K**). DPC absorbs another **$97K**; indemnity offsets **$104K** of mid-acuity event cost. **Conservative** still produces +$225K (+14.8 %) — pessimistic stop-loss premium ($130 PEPM) plus maximum 1.40× risk-margin amplification compress the savings but no longer flip them red against an industry-benchmark baseline. **Aggressive** produces **+$537K (+35.2 %)**.
+
+This savings range — Conservative +14.8 %, Expected +28.9 %, Aggressive +35.2 % — tracks the Source-of-Truth doc's Section 6 Year-1 trend: traditional self-funded $785 PEPM vs OffPlan all-in $582 PEPM = ~26 % savings.
 
 The mechanics line up with how the OffPlan transformation is supposed to work: the cash-pay network attacks specialty / imaging / ASC pricing at the 200–300 % of Medicare reality it sits at, compressing 40–55 %; DPC absorbs predictable primary-care and chronic-management dollars; structured indemnity caps employer exposure on triggering events; specific stop-loss carries the catastrophic tail. The result is meaningful run-rate savings across all three input modes — see the cross-case table below.
 
@@ -296,30 +313,31 @@ The cascade was also run for XYZ Construction (Mode 2, level-funded) and Riverda
 
 |                          | Lives | Σ allowed   | Total OffPlan Annual | Current Total | Net Savings   |
 |---                       |---:   |---:         |---:                  |---:           |---:           |
-| ABC Manufacturing        | 162   | $983,370    | $925,022             | $1,187,450    | **+$262,428** (+22.1 %) |
-| XYZ Construction         | 98    | $540,000    | $531,240             | $612,000      | **+$80,760** (+13.2 %) |
-| Riverdale Hospitality    | 205   | $1,109,446  | $1,280,044           | $1,750,000    | **+$469,956** (+26.9 %) |
+| ABC Manufacturing        | 162   | $983,370    | $987,619             | $1,525,000    | **+$537,381** (+35.2 %) |
+| XYZ Construction         | 98    | $540,000    | $569,107             | $840,000      | **+$270,893** (+32.2 %) |
+| Riverdale Hospitality    | 205   | $1,109,446  | $1,359,256           | $2,400,000    | **+$1,040,744** (+43.4 %) |
 
-Under **Expected**, ABC and Riverdale produce strong savings (+11.6 % and +17.2 %); XYZ comes in essentially at parity (−1.4 %). Under **Aggressive**, all three are clearly positive (+13 % to +27 %). Under **Conservative** — pessimistic $175 PEPM stop-loss premium, maximum 1.40× risk-margin amplification, and minimum DPC absorption stacked together — all three run between −3.8 % and −22.3 %. Conservative going broadly red is honest: it represents the worst-realistic-case combination, where every assumption goes against the model simultaneously. The point of running Conservative isn't to show that OffPlan always wins; it's to show how much margin the structure has against an adverse-everything view.
+Under **Expected**, all three demos produce strong savings (ABC +28.9 %, XYZ +23.7 %, Riverdale +37.9 %). Under **Aggressive**, savings widen to +32 %–+43 %. Under **Conservative** — $130 PEPM stop-loss premium, maximum 1.40× risk-margin amplification, and minimum DPC absorption stacked together — all three remain positive (ABC +14.8 %, XYZ +10.6 %, Riverdale +24.1 %). The May 2026 baseline lift (employer-facing current-spend numbers re-anchored to the Source-of-Truth doc's Section 6 Y1 industry benchmarks: $785 PEPM traditional self-funded, $715 level-funded, $975 fully-insured BUCA) explains why Conservative no longer flips red — the prior demo baselines were running below industry trend, which made the worst-realistic preset combination understate margin.
 
 Numbers above are produced by direct invocation of the engine modules (`runCalculation` from `src/engine/calculate.js` against the seeded demo JSON) and reproduce what the dashboard renders for each demo on load.
 
 #### Calibration history (May 2026)
 
-The shipped demo numbers above reflect a four-change re-baseline driven by a structural diagnostic of the original demo data:
+The shipped demo numbers above reflect a multi-pass re-baseline. The primary anchor is now the internal **`OffPlan Financial Model Assumptions Reference (Source of Truth)` — May 2026** (`docs/OffPlan_Financial_Model_Assumptions_Reference.docx`); the broker-survey work that drove the prior pass is retained as cross-check.
 
-1. **Stop-loss premium PEPM** dropped from `$200/$175/$150` (Conservative/Expected/Aggressive) to **`$175/$130/$100`** — positioned within the broker-published SMB range. Sources:
-   - [Aegis Risk 2025 Medical Stop-Loss Premium Survey](https://www.iscebs.org/docs/iscebslibraries/uploadedfiles/surveys/aegis-risk-survey-2025.pdf) (19th annual, ISCEBS-published, retrieved 2026-05-07): **$229.40 PEPM at $100K individual deductible**, weighted across all group sizes (17–21,000+ lives, 1,268 plan sponsors). Highest public authority; plan-sponsor-reported.
-   - [IFEBP "Word on Benefits" — 2024 Aegis recap](https://blog.ifebp.org/stop-loss-premiums-increase-to-over-10-annually/) (retrieved 2026-05-07): $210.80 PEPM at $100K (prior year; trend +8.8 % YoY).
-   - [Ethos Benefits Stop-Loss Cost Guide, July 2025](https://ethosbenefits.com/how-much-does-stop-loss-insurance-cost/) (retrieved 2026-05-07): **"Specific stop-loss premiums range $50–$150 PEPM, average ~$100 PEPM"**; worked example for a 100-employee group at $90 specific + $10 aggregate. Broker blog — lower authority than Aegis, but explicitly covers the SMB band.
-   - [Milliman *Observations on the Employer Stop-Loss Market: 2024 Survey*](https://www.milliman.com/en/insight/observations-employer-stop-loss-market-2024-survey) (32 carriers including 8 of top 10, retrieved 2026-05-07): authoritative on pricing *methodology* and market structure; does **not** publish PEPM rate tables publicly.
+1. **OffPlan stack rebuilt against the doc's Section 2.** `OFFPLAN_MEMBERSHIP_PEPM` dropped from `$195` to **`$185`** (locked); the stack now also includes `PBM_ADMIN_PEPM = $8` (working assumption, finalize via Yuzu PBM RFP), `FIRSTHEALTH_PEPM = $5.95` (Yuzu rate card, confirmed), `MEDWATCH_PEPM = $3.25` (Yuzu rate card, confirmed), and `ACCIDENT_INDEMNITY_PEPM = $40` (working assumption, finalize w/ TownHealth or equivalent). `TPA_PEPM` stays at `$40` (Yuzu confirmed). Sum is `OFFPLAN_FIXED_OVERHEAD_PEPM = $282.20`. Combined with the Expected stop-loss line ($100) and the deterministic claims-fund placeholder (~$175 PEPM at the ABC demo), the Expected scenario lands at **$557.45 all-in PEPM** — within $25 of the doc's $582.20 single-coverage anchor.
 
-   **How the calibration positions against the sources.** The Ethos broker SMB range (`$50–$150 PEPM`, avg `$100`) anchors all three values: Aggressive `$100` sits at the broker-cited average; Expected `$130` is the middle-upper of the broker range; Conservative `$175` is at the high end and slightly above the Ethos cap, used for a stress-pessimistic view. None of the three exceed the Aegis 2025 anchor ($229.40 PEPM at $100K, all-sizes-weighted) — but Aegis is at $100K attachment, while our demos use $50K, and lower attachments price *higher* (more risk transferred to the carrier). For an all-sizes-weighted population at $50K, true market premium would sit *above* $229; for SMB pure-play, the broker range is the more applicable anchor.
+2. **Stop-loss premium PEPM** moved from `$175/$130/$100` (Conservative/Expected/Aggressive) to **`$130/$100/$85`** to anchor on the doc's Section 2 working assumption of `$100 PEPM` and Section 3 disclosure that *"carriers will price initial coverage based on conservative assumptions until population experience validates the lower claims fund expectation, which may push initial stop-loss premiums above the $100 PEPM working assumption."* Expected sits at the doc anchor; Conservative reflects the pre-experience underwriting markup; Aggressive reflects post-experience pricing once population data validates.
 
-   **Caveat — read before any commercial conversation.** No public source publishes specific-stop-loss PEPM at exactly $50K attachment for the SMB segment. The values above are **defensible as demo inputs** within the broker-published SMB band, but **not market-verified for any specific employer**. Before any MGU conversation or board-grade comparison, these values must be replaced with actual carrier quotes for the employer in question — the market premium for a real 162-life self-funded manufacturer at $50K specific in 2026 is whatever Sun Life / Symetra / HM / Tokio Marine HCC will quote, not what this demo calibration assumes.
-2. **Synthetic distribution recalibrated** in `src/engine/synthetic.js → SYNTHETIC_DISTRIBUTION`: Specialty Rx 8 % → **16 %**, Outpatient Surgery 10 % → **12 %**, Inpatient 18 % → **20 %**, Imaging avg claim $800 → **$1,600**, Procedures avg claim $2,400 → **$4,800** (200–300 % of Medicare reality). Other lines trimmed proportionally to keep shares summing to 1.0.
-3. **Riverdale Hospitality `current_total_healthcare_spend`** lifted from `$1,340,000` → **`$1,750,000`** ($711 PEPM) to track defensible fully-insured premium for a 205-life hospitality group.
-4. **Risk-margin × residual placeholder retained as-is** (still flagged "deprecated v3.0/v3.1" in the dashboard). Removing it now would silently under-fund the residual without any replacement; the spec replaces the whole construct with stochastic Min Required Liquidity in a later build.
+   The earlier broker-survey calibration ([Aegis Risk 2025](https://www.iscebs.org/docs/iscebslibraries/uploadedfiles/surveys/aegis-risk-survey-2025.pdf), [IFEBP Aegis recap](https://blog.ifebp.org/stop-loss-premiums-increase-to-over-10-annually/), [Ethos Benefits Stop-Loss Cost Guide](https://ethosbenefits.com/how-much-does-stop-loss-insurance-cost/), [Milliman 2024 Stop-Loss Survey](https://www.milliman.com/en/insight/observations-employer-stop-loss-market-2024-survey)) remains the external cross-check: the new spread `$85–$130 PEPM` sits at the lower-middle of the Ethos broker SMB band ($50–$150 PEPM, avg $100), well within the all-sizes-weighted Aegis 2025 anchor ($229.40 PEPM at $100K).
+
+   **Caveat — read before any commercial conversation.** No public source publishes specific-stop-loss PEPM at exactly $50K attachment for the SMB segment. The values above are **defensible as demo inputs** anchored to the Source-of-Truth doc, but **not market-verified for any specific employer**. Before any MGU conversation or board-grade comparison, these values must be replaced with actual carrier quotes for the employer in question.
+
+3. **Demo `current_total_healthcare_spend` re-anchored to the doc's Section 6 Y1 industry benchmarks** ($785 PEPM traditional self-funded, $715 level-funded, $975 fully-insured BUCA): ABC `$1,187,450` → **`$1,525,000`** (~$785 PEPM at 162 lives), XYZ `$612,000` → **`$840,000`** (~$715 PEPM at 98 lives), Riverdale `$1,750,000` → **`$2,400,000`** (~$975 PEPM at 205 lives). Historical claims spend nudged for ABC/Riverdale to keep nominal totals close to the frozen JSON sums.
+
+4. **Synthetic distribution recalibrated** in `src/engine/synthetic.js → SYNTHETIC_DISTRIBUTION`: Specialty Rx 8 % → **16 %**, Outpatient Surgery 10 % → **12 %**, Inpatient 18 % → **20 %**, Imaging avg claim $800 → **$1,600**, Procedures avg claim $2,400 → **$4,800** (200–300 % of Medicare reality). Other lines trimmed proportionally to keep shares summing to 1.0.
+
+5. **Risk-margin × residual placeholder retained as-is** (still flagged "deprecated v3.0/v3.1" in the dashboard). The doc's Section 3 working anchor for this layer is **$200 PMPM** (range $140–$240). Removing the placeholder now would silently under-fund the residual without any replacement; the spec replaces the whole construct with stochastic Min Required Liquidity in a later build.
 
 ---
 
@@ -334,7 +352,7 @@ Three presets in `src/constants.js → SCENARIO_PRESETS`. All eight knobs are ed
 | `er_reduction_pct`         | 10 %         | **25 %**     | 40 %       |
 | `cashpay_discount_factor`  | 70 %         | **50 %**     | 40 %       |
 | `attachment_point`         | $75K         | **$50K**     | $50K       |
-| `stop_loss_pepm`           | $175         | **$130**     | $100       |
+| `stop_loss_pepm`           | $130         | **$100**     | $85        |
 | `risk_margin`              | 1.40×        | **1.25×**    | 1.10×      |
 
 Conservative is underwriting-safe; Expected is the default for employer conversations; Aggressive demonstrates the structural ceiling of the model.
@@ -383,9 +401,9 @@ These are the modules required by the spec (Modules 6, 7, 9, 10, 11) and are def
 
 | Case                          | Mode    | Scenario     | Loader        | Lives | Historical claims | Current total spend |
 |---                            |---      |---           |---            |---:   |---:               |---:                 |
-| **ABC Manufacturing**         | Full    | Expected     | `json_full`   | 162   | $950,000          | $1,187,450          |
-| **XYZ Construction**          | Partial | Conservative | `rows_partial`| 98    | $540,000          | $612,000            |
-| **Riverdale Hospitality**     | Modeled | Aggressive   | `json_full` (mode override = "modeled") | 205 | $1,080,000 | $1,750,000 |
+| **ABC Manufacturing**         | Full    | Expected     | `json_full`   | 162   | $985,000          | $1,525,000          |
+| **XYZ Construction**          | Partial | Conservative | `rows_partial`| 98    | $540,000          | $840,000            |
+| **Riverdale Hospitality**     | Modeled | Aggressive   | `json_full` (mode override = "modeled") | 205 | $1,110,000 | $2,400,000 |
 
 Loader kinds (interpreted by `App.jsx → loadDemoCase()`):
 

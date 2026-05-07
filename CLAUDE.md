@@ -39,6 +39,27 @@ Order is mandatory and load-bearing — do not reorder:
 
 Excluded claims (`c.excluded === true`) are dropped before any of this — they don't appear in `historical_claims` or any aggregate.
 
+### OffPlan cost stack (`src/constants.js` + `DashboardScreen.jsx` / `ReportScreen.jsx`)
+
+The engine produces the cascade aggregates above; the screens layer the OffPlan cost stack on top to render Total OffPlan PEPM. The stack constants are anchored to **`docs/OffPlan_Financial_Model_Assumptions_Reference.docx` (Source of Truth, May 2026)**:
+
+```
+OFFPLAN_FIXED_OVERHEAD_PEPM = 282.20  (sum of the six fixed components)
+  OFFPLAN_MEMBERSHIP_PEPM      $185.00   locked (doc §1)
+  PBM_ADMIN_PEPM               $  8.00   working assumption — finalize w/ Yuzu PBM RFP
+  FIRSTHEALTH_PEPM             $  5.95   confirmed — Yuzu rate card
+  MEDWATCH_PEPM                $  3.25   confirmed — Yuzu rate card
+  ACCIDENT_INDEMNITY_PEPM      $ 40.00   working assumption — finalize w/ TownHealth or equivalent
+  TPA_PEPM                     $ 40.00   confirmed — Yuzu
+
+Total OffPlan PEPM =
+    OFFPLAN_FIXED_OVERHEAD_PEPM
+  + scenario.stop_loss_pepm                ($85 / $100 / $130 by preset)
+  + (residual_pepm × scenario.risk_margin) (deprecated v3.0/v3.1 placeholder; doc §3 anchors the long-run replacement at $200 PMPM)
+```
+
+When any of these constants change, also update the README's §6 stack box, §8 ABC walkthrough, §8.5 calibration history, and §9 scenario knobs table. The Report screen renders one row per stack component — keep its rows in sync with `src/constants.js`. The `OFFPLAN_FIXED_OVERHEAD_PEPM` constant is derived; do not hardcode `282.20` anywhere.
+
 ### Classification (`src/engine/classify.js`)
 
 `normalizeAndClassify(claim, cptRules)` resolves to a bucket via this precedence: DRG/POS=Inpatient → POS=ER → POS=Urgent → POS=ASC (then CPT) → CPT range match (with specialty override that bumps Primary Care into Specialist Consult when specialty is non-PCP) → Rx claim_type → Other (bucket D, low confidence).
@@ -85,6 +106,6 @@ The repo root contains pre-refactor reference artifacts that are **not** part of
 
 - `05_OffPlan_Engine_Reference_Implementation.jsx` (~3.4k lines) — the original monolithic Claude-Artifact-era component, preserved for reference.
 - `OffPlan_Engine_Build_Package_v1_0_FINAL (1).zip` — original spec bundle.
-- `docs/` — Word specification documents (Master Spec v33, Data Dictionary, Architecture Spec, etc.).
+- `docs/` — Word specification documents (Master Spec v33, Data Dictionary, Architecture Spec, etc.). One exception: `docs/OffPlan_Financial_Model_Assumptions_Reference.docx` is the active Source-of-Truth pricing doc — the stack constants in `src/constants.js` and the demo-case `current_total_healthcare_spend` numbers in `src/demo-cases.js` are pinned to it. When that doc updates, those constants and downstream README sections must update to match.
 
 Do not edit these expecting them to affect the running app. The Vite app only consumes `src/`, `public/`, and `index.html`.
