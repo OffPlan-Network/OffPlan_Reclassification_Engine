@@ -20,7 +20,7 @@ npm run gen-demo     # regenerate frozen demo JSONs in public/data/
 
 There are no tests, no linter, and no typechecker configured. The app is purely client-side — no backend, no API. Persistence is `localStorage` (with an in-memory fallback for sandboxed contexts), namespaced under `offplan_engine:`.
 
-GitHub Actions deploys `dist/` to GitHub Pages on every push to `master`/`main` (`.github/workflows/pages.yml`).
+Deployment: Vercel, via its GitHub integration — Vercel watches `master`/`main` and ships every push. No GitHub Actions workflow involved.
 
 ### When to re-run `npm run gen-demo`
 

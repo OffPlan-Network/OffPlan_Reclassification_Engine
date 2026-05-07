@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 - `npm run dev` — Vite dev server (HMR).
-- `npm run build` — production build to `dist/` (sourcemaps on). GitHub Actions deploys this to Pages on push to `master`/`main` (`.github/workflows/pages.yml`).
+- `npm run build` — production build to `dist/` (sourcemaps on). Deployed by Vercel via its GitHub integration on push to `master`/`main`.
 - `npm run preview` — serve the built `dist/` locally.
 - `npm run gen-demo` — regenerate the frozen demo claim JSON files in `public/data/`. Run this after changing `src/engine/synthetic.js` or `scripts/generate-demo-claims.mjs`; otherwise the deterministic Mode 1 demos (ABC Manufacturing, Riverdale Hospitality) will drift from the synthetic generator's current output.
 
