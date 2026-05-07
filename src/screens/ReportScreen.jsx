@@ -1,4 +1,4 @@
-import { AlertTriangle, FileDown } from 'lucide-react';
+import { AlertTriangle, FileDown, Droplets } from 'lucide-react';
 import { fmtUSD, fmtNum, fmtPct } from '../ui/formatters.js';
 import { BucketBadge } from '../ui/BucketBadge.jsx';
 import { InputModeBadge, ProvenanceFooter } from '../ui/Provenance.jsx';
@@ -11,6 +11,7 @@ import {
   MEDWATCH_PEPM,
   ACCIDENT_INDEMNITY_PEPM,
 } from '../constants.js';
+import { simulateLiquidity } from '../engine/stochastic.js';
 
 export function ReportScreen({ employer, scenario, result, classifiedClaims, inputModeRecord,
                                 activePricingVersion, activeRuleVersion, activeIndemnityVersion, activeBenchmarkVersion }) {
@@ -35,6 +36,15 @@ export function ReportScreen({ employer, scenario, result, classifiedClaims, inp
   const savingsBaseline = hasValidBaseline ? rawBaseline : null;
   const annualSavings = hasValidBaseline ? savingsBaseline - totalOffPlanAnnual : null;
   const savingsPct = hasValidBaseline && savingsBaseline > 0 ? annualSavings / savingsBaseline : null;
+
+  const liquidity = result?.claims?.length
+    ? simulateLiquidity({
+        employer,
+        scenario,
+        modeledClaims: result.claims,
+        options: { runs: 1000 },
+      })
+    : null;
 
   const print = () => window.print();
 
@@ -280,6 +290,34 @@ export function ReportScreen({ employer, scenario, result, classifiedClaims, inp
           </tbody>
         </table>
 
+        {liquidity && (
+          <div className="mb-10">
+            <div className="flex items-center gap-2 mb-1">
+              <Droplets size={18} className="text-blue-600" />
+              <h2 className="font-display text-3xl">Liquidity Profile</h2>
+            </div>
+            <p className="text-sm text-stone-600 mb-5 max-w-3xl">
+              Distribution of max cumulative drawdown across {fmtNum(liquidity.meta.runs)} simulation runs.
+              MVP scope: timing-resample only, {liquidity.meta.lag_months}-month stop-loss reimbursement lag, P95 = MRL.
+              Heavy-tail event variance and chronic clustering deferred to the full Liquidity Spec v1.2 build —
+              MRL shown is therefore a <strong>lower bound</strong>.
+            </p>
+            <table className="w-full text-sm border border-stone-200 rounded mb-4">
+              <tbody>
+                <AssumptionRow label="Min Required Liquidity (P95)" value={fmtUSD(liquidity.mrl)} />
+                <AssumptionRow label="P50 / P75 / P90 / P99" value={`${fmtUSD(liquidity.percentiles.p50)} · ${fmtUSD(liquidity.percentiles.p75)} · ${fmtUSD(liquidity.percentiles.p90)} · ${fmtUSD(liquidity.percentiles.p99)}`} />
+                <AssumptionRow label="Mean Monthly Outflow" value={fmtUSD(liquidity.mean_monthly_outflow)} />
+                <AssumptionRow label="Capital Efficiency Ratio (ELF / MRL)" value={liquidity.cer ? `${liquidity.cer.toFixed(1)}×` : "—"} />
+                <AssumptionRow label="Liquidity Reduction" value={liquidity.liquidity_reduction_pct != null ? fmtPct(liquidity.liquidity_reduction_pct) : "—"} />
+                <AssumptionRow label="Liquidity Coverage Ratio (MRL / mean monthly outflow)" value={liquidity.lcr ? `${liquidity.lcr.toFixed(1)}×` : "—"} />
+                <AssumptionRow label="Stress Coverage Ratio (MRL / P75)" value={liquidity.scr ? `${liquidity.scr.toFixed(1)}×` : "—"} />
+                <AssumptionRow label="Equivalent Level-Funded Total Cost (ELF)" value={fmtUSD(liquidity.elf)} />
+                <AssumptionRow label="Method" value={liquidity.meta.method} />
+              </tbody>
+            </table>
+          </div>
+        )}
+
         <h2 className="font-display text-3xl mb-1">Scenario Assumptions</h2>
         <p className="text-sm text-stone-600 mb-5">
           {scenario.name} scenario. {SCENARIO_PRESETS[scenario.name?.toLowerCase()]?.description || ""}
@@ -299,7 +337,7 @@ export function ReportScreen({ employer, scenario, result, classifiedClaims, inp
 
         <div className="border-t border-stone-300 pt-6 text-xs text-stone-500 leading-relaxed">
           <strong className="text-stone-700">Important: </strong>
-          This report represents the deterministic classification layer of the OffPlan engine. It is not an insurance quote and is not a substitute for the stochastic capital analysis specified in OffPlan's Liquidity & Capital Modeling Specification v1.2. The headline capital output (Minimum Required Liquidity with bootstrap confidence bands, Capital Efficiency Ratio, Liquidity Coverage Ratio, Stress Coverage Ratio) is produced by the stochastic layer (Modules 6, 7, 9, 10, 11) which is under development. The Residual Fund shown here is an intermediate output that feeds the stochastic layer. Stop-loss premiums, attachment points, and indemnity benefits are illustrative and must be confirmed with underwriting partners. The "Risk Margin" multiplier is the deprecated v3.0/v3.1 deterministic funding placeholder, retained in this prototype for scenario sizing only and replaced in production by stochastic simulation outputs.
+          This report combines the deterministic classification layer with a timing-resample MVP of the stochastic liquidity layer. It is not an insurance quote. The MRL number above is derived from {liquidity ? fmtNum(liquidity.meta.runs) : "1,000"} Monte Carlo runs over claim timing only — heavy-tail event variance, chronic clustering, complication lags, and aggregate stop-loss specified in OffPlan's Liquidity & Capital Modeling Specification v1.2 (Modules 6, 7, 9, 10, 11) are not yet modeled. Treat MRL as a <strong>lower bound</strong> suitable for directional CFO conversations, not for MGU underwriting submissions. Stop-loss premiums, attachment points, and indemnity benefits are illustrative and must be confirmed with underwriting partners. The "Risk Margin" multiplier is the deprecated v3.0/v3.1 deterministic funding placeholder, retained for scenario sizing only.
         </div>
 
         <div className="border-t border-stone-200 pt-4 mt-4">

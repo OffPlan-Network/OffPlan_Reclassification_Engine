@@ -371,27 +371,29 @@ Every ingested claim is stamped with the IDs of the currently active versions, s
 
 ---
 
-## 11. What this build does **not** compute (yet)
+## 11. Stochastic liquidity layer — MVP scope
 
-Per Master Spec v3.3 + Liquidity Spec v1.2, the headline capital outputs (which are what defends the OffPlan thesis to a CFO board or stop-loss MGU) come from the **stochastic capital layer**:
+A timing-resample Monte Carlo ships in `src/engine/stochastic.js`. It produces an MRL number that the dashboard and report surface as **a lower bound on required capital**, sufficient for directional CFO conversations. Production-grade MGU underwriting input requires the deferred items below.
 
 | Spec metric                       | Status in this build |
 |---                                |---                   |
-| Min Required Liquidity (P95 of max rolling 30-day Net Drawdown) | **Not computed** — dashboard shows `—`                         |
-| Equivalent Level-Funded Total Cost (capital, total-to-total)    | **Not computed** — only run-rate `current_total_healthcare_spend` is surfaced |
-| Capital Efficiency Ratio (CER = ELF / MRL)                      | **Not computed**                          |
-| Liquidity Reduction percentage (1 − MRL/ELF)                    | **Not computed**                          |
-| Liquidity Coverage Ratio (LCR), Stress Coverage Ratio (SCR)     | **Not computed**                          |
-| P50 / P75 / P90 / P95 / P99 monthly outflow with bootstrap CI   | **Not computed**                          |
-| Replenishment-aware Net Drawdown                                | **Not computed**                          |
-| Reimbursement-lag Pre-Reimbursement Outflow                     | **Not computed**                          |
-| Heavy-tail Pareto for inpatient tiers (T8/T9)                   | **Not modeled** — synthetic generator uses uniform variance only |
-| Aggregate stop-loss corridor                                    | **Not modeled**                           |
-| Chronic clustering / ICD-10 chronic derivation                  | `chronic_flag` is set in synthetic data but does not drive event clustering |
+| Min Required Liquidity (P95 of max cumulative drawdown) | **Computed** — 1,000 runs, monthly resolution, 3-month stop-loss reimbursement lag |
+| Equivalent Level-Funded Total Cost (ELF) | **Computed** — uses `current_total_healthcare_spend` as the level-funded proxy |
+| Capital Efficiency Ratio (CER = ELF / MRL) | **Computed**          |
+| Liquidity Reduction percentage (1 − MRL/ELF) | **Computed**        |
+| Liquidity Coverage Ratio (LCR), Stress Coverage Ratio (SCR) | **Computed** |
+| P50 / P75 / P90 / P95 / P99 of max cumulative drawdown | **Computed** — single-pass percentiles, no bootstrap CI yet |
+| Replenishment-aware Net Drawdown | **Computed** — monthly contribution = annual cash flow / 12 |
+| Reimbursement-lag Pre-Reimbursement Outflow | **Computed** — fixed 3-month lag (75-day approximation) |
+| Heavy-tail Pareto for inpatient tiers (T8/T9) | **Not modeled** — MVP resamples existing claim timing only, no event-tail variance |
+| Aggregate stop-loss corridor | **Not modeled** |
+| Chronic clustering / complication lag (Spec v1.2 §4.1) | **Not modeled** — `chronic_flag` is set in synthetic data but doesn't drive event clustering |
+| Bootstrap confidence intervals on percentiles | **Not computed** — single-run percentiles only |
+| Negative-Binomial frequency for over-dispersed tiers | **Not modeled** — tier-based event generation deferred entirely |
 
-These are the modules required by the spec (Modules 6, 7, 9, 10, 11) and are deferred to a follow-on build. The dashboard's amber banner makes this explicit so a viewer doesn't mistake the deterministic output for the headline capital number.
+**Why MRL is a lower bound:** the simulator resamples claim *timing* (uniform monthly placement) but holds claim *content* fixed at the deterministic engine's output. A real-world cohort experiencing an unobserved inpatient catastrophic event would push MRL above the P95 we report. The simulator therefore answers "given the claims this employer actually had, how much liquidity did they need to weather that year's worst-month drawdown?" — not "how much liquidity will the population need under all plausible event distributions?". The latter is what the full Liquidity Spec v1.2 build (Modules 6, 7, 9, 10, 11) produces.
 
-**Bottom line for stakeholders:** this prototype is sufficient to demonstrate *which dollars move where* under OffPlan, and to produce a directional run-rate savings comparison for a real employer. It is **not yet** sufficient to produce the Min Required Liquidity number that a stop-loss MGU will bind on, nor the CER multiplier the spec uses to claim "OffPlan requires N×N less capital than level-funded." Those numbers require the stochastic layer.
+**Bottom line for stakeholders:** this build produces a defensible directional MRL number for run-rate cash management conversations and an ELF / MRL ratio that frames the OffPlan capital-efficiency story. It is **not yet** sufficient to produce the MRL that a stop-loss MGU will bind on. That number requires modeling event-frequency and cost-tail variance per Spec v1.2.
 
 ---
 

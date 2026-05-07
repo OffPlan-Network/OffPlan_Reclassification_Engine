@@ -81,6 +81,34 @@ test('2. Demo load persists employer + claims + scenario rows in Postgres', asyn
   expect(claims.length).toBeGreaterThan(1000);
 });
 
+test('4. Stochastic MRL renders on dashboard with positive USD value and CER', async ({ page }) => {
+  await loadAbcDemo(page);
+
+  // The MRL card is in the dark hero and tagged with data-testid="mrl-card".
+  // The simulation runs synchronously in useMemo, so the value should be
+  // present on first render of the dashboard.
+  const mrlCard = page.getByTestId('mrl-card');
+  await expect(mrlCard).toBeVisible();
+
+  // Read the headline MRL value (the only .num element directly inside the card).
+  const mrlText = (await mrlCard.locator('.num').first().innerText()).trim();
+  expect(mrlText, `MRL "${mrlText}" should be a USD figure`).toMatch(USD_RE);
+  expect(mrlText, 'MRL should not be the placeholder dash').not.toBe('—');
+
+  // CER should appear in the subtitle as something like "20.2× capital efficiency vs ELF".
+  const subText = await mrlCard.locator('div').last().innerText();
+  expect(subText, `CER subtitle "${subText}" should reference capital efficiency`).toMatch(/capital efficiency/i);
+  expect(subText).toMatch(/\d+\.\d+×/);
+
+  // Liquidity Profile section should render with the P95 percentile card
+  // labeled "MRL". Targeting the specific percentile card heading avoids
+  // the prose-paragraph and footer-caveat matches for "P95".
+  const profile = page.getByTestId('liquidity-profile');
+  await expect(profile).toBeVisible();
+  await expect(profile.getByText('P95 · MRL', { exact: false })).toBeVisible();
+  await expect(profile.getByText(/^P50\b/)).toBeVisible();
+});
+
 test('3. Editing a scenario knob persists to Postgres on change', async ({ page, request }) => {
   await loadAbcDemo(page);
 

@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { AlertTriangle, DollarSign, TrendingDown, Zap, Activity, Shield, Target, Users } from 'lucide-react';
+import { AlertTriangle, DollarSign, TrendingDown, Zap, Activity, Shield, Target, Users, Droplets } from 'lucide-react';
 import { fmtUSD, fmtNum, fmtPct } from '../ui/formatters.js';
 import { EmptyState } from '../ui/EmptyState.jsx';
 import { InputModeBadge, ProvenanceFooter } from '../ui/Provenance.jsx';
@@ -17,6 +17,7 @@ import {
   DEFAULT_REPRICE_FACTORS,
 } from '../constants.js';
 import { runCalculation } from '../engine/calculate.js';
+import { simulateLiquidity } from '../engine/stochastic.js';
 
 export function DashboardScreen({ employer, scenario, result, classifiedClaims, onScenarioChange,
                                    inputModeRecord, activePricingVersion, activeRuleVersion,
@@ -64,6 +65,20 @@ export function DashboardScreen({ employer, scenario, result, classifiedClaims, 
   const annualSavings = hasValidBaseline ? savingsBaseline - totalOffPlanAnnual : null;
   const savingsPct = hasValidBaseline && savingsBaseline > 0 ? annualSavings / savingsBaseline : null;
 
+  // Stochastic liquidity layer (Liquidity Spec v1.2 §3 — MVP scope: timing
+  // resampling only; event-tail variance deferred). Runs are deterministic
+  // for a given (employer, scenario, claims) tuple, so this useMemo is
+  // safe to re-trigger on prop changes without thrashing.
+  const liquidity = useMemo(() => {
+    if (!result?.claims?.length) return null;
+    return simulateLiquidity({
+      employer,
+      scenario,
+      modeledClaims: result.claims,
+      options: { runs: 1000 },
+    });
+  }, [employer?.id, scenario, result?.claims]);
+
   return (
     <div>
       <div className="flex items-end justify-between mb-6">
@@ -86,9 +101,9 @@ export function DashboardScreen({ employer, scenario, result, classifiedClaims, 
         <div className="flex gap-2">
           <AlertTriangle size={16} className="text-amber-700 flex-shrink-0 mt-0.5" />
           <div>
-            <strong>Prototype scope: deterministic classification layer only.</strong>
+            <strong>Prototype scope: deterministic classification + timing-resample MRL.</strong>
             <div className="mt-1 leading-relaxed">
-              This reference implementation produces the residual fund (the dollars that remain after every OffPlan transformation) and the OffPlan stack PEPM. The headline capital output specified in Master Spec v3.3 — <strong>Minimum Required Liquidity</strong> with bootstrap confidence bands — is computed by the stochastic capital layer (Modules 6, 7, 9, 10, 11 per Liquidity Spec v1.2) which is not yet implemented in this prototype. The "Risk Margin × Residual" formula shown below is the deprecated v3.0/v3.1 funding construct retained here only as an intermediate placeholder until the stochastic layer ships.
+              This build produces the residual fund and the OffPlan stack PEPM (deterministic), plus a Monte Carlo Min Required Liquidity using <em>timing variance only</em> — each modeled claim is placed on a uniform-random month with a 3-month stop-loss reimbursement lag, and we take the P95 of max cumulative drawdown across 1,000 runs. The full stochastic layer specified in Liquidity Spec v1.2 (heavy-tail event variance, chronic clustering, complication lag, aggregate stop-loss, bootstrap CI) is not yet modeled. The MRL number below is therefore a <strong>lower bound</strong> — a population with realized inpatient catastrophic events would require more capital. The "Risk Margin × Residual" formula in §6.6 of the spec is the deprecated v3.0/v3.1 funding construct retained as an intermediate placeholder.
             </div>
           </div>
         </div>
@@ -109,13 +124,17 @@ export function DashboardScreen({ employer, scenario, result, classifiedClaims, 
             Per employee per month · pre-stochastic
           </div>
         </div>
-        <div>
+        <div data-testid="mrl-card">
           <div className="text-[10px] uppercase tracking-wider text-stone-400 mb-2">
-            Min Required Liquidity <span className="text-amber-300 font-normal">· not yet computed</span>
+            Min Required Liquidity <span className="text-emerald-300 font-normal">· P95 · timing-resample MVP</span>
           </div>
-          <div className="font-display text-5xl mb-1 num text-stone-500">—</div>
-          <div className="text-sm text-stone-400">
-            Produced by stochastic layer (Modules 6–11) · not in this prototype
+          <div className="font-display text-5xl mb-1 num">
+            {liquidity ? fmtUSD(liquidity.mrl) : "—"}
+          </div>
+          <div className="text-sm text-stone-300">
+            {liquidity && liquidity.cer
+              ? `${liquidity.cer.toFixed(1)}× capital efficiency vs ELF`
+              : "Run a scenario with claims to compute"}
           </div>
         </div>
       </div>
@@ -128,6 +147,64 @@ export function DashboardScreen({ employer, scenario, result, classifiedClaims, 
           <span className="text-stone-500">— used for scenario sizing only; not a headline output.</span>
         </div>
       </div>
+
+      {liquidity && (
+        <div className="bg-white border border-stone-200 rounded-lg p-6 mb-6" data-testid="liquidity-profile">
+          <div className="flex items-start justify-between mb-4 flex-wrap gap-2">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <Droplets size={16} className="text-blue-600" />
+                <h3 className="font-medium text-stone-900">Liquidity Profile</h3>
+              </div>
+              <p className="text-xs text-stone-500 max-w-2xl leading-relaxed">
+                Distribution of max cumulative drawdown across {fmtNum(liquidity.meta.runs)} simulation runs.
+                Each run resamples claim timing with uniform monthly placement and a {liquidity.meta.lag_months}-month
+                stop-loss reimbursement lag. P95 = MRL.
+              </p>
+            </div>
+            <div className="text-right text-[11px] text-stone-500">
+              <div className="uppercase tracking-wider">Method</div>
+              <div className="font-medium text-stone-700 normal-case">{liquidity.meta.method}</div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
+            {['p50', 'p75', 'p90', 'p95', 'p99'].map((p) => (
+              <div key={p} className={`border rounded p-3 ${p === 'p95' ? 'bg-emerald-50 border-emerald-200' : 'border-stone-200'}`}>
+                <div className="text-[10px] uppercase tracking-wider text-stone-500 mb-1">
+                  {p.toUpperCase()} {p === 'p95' && <span className="text-emerald-700 normal-case">· MRL</span>}
+                </div>
+                <div className="font-mono num text-base text-stone-900">{fmtUSD(liquidity.percentiles[p])}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+            <RatioCard label="Mean Monthly Outflow" value={fmtUSD(liquidity.mean_monthly_outflow)} sub="Across all runs" />
+            <RatioCard
+              label="Capital Efficiency Ratio"
+              value={liquidity.cer ? `${liquidity.cer.toFixed(1)}×` : "—"}
+              sub={liquidity.cer ? "ELF / MRL" : "Total spend not set"}
+            />
+            <RatioCard
+              label="Liquidity Reduction"
+              value={liquidity.liquidity_reduction_pct != null ? fmtPct(liquidity.liquidity_reduction_pct) : "—"}
+              sub="vs level-funded pre-fund"
+            />
+            <RatioCard
+              label="LCR / SCR"
+              value={liquidity.lcr && liquidity.scr ? `${liquidity.lcr.toFixed(1)}× / ${liquidity.scr.toFixed(1)}×` : "—"}
+              sub="MRL vs mean / P75 outflow"
+            />
+          </div>
+
+          <div className="mt-4 text-[11px] text-stone-500 leading-relaxed border-t border-stone-100 pt-3">
+            <strong>Lower-bound caveat:</strong> this MVP simulates timing variance only. Realized inpatient catastrophic events,
+            chronic clustering, and complication lags would push P95 higher. Use this number as a directional CFO conversation
+            anchor, not as MGU-grade underwriting input. Production replaces this with the full Liquidity Spec v1.2 stochastic layer.
+          </div>
+        </div>
+      )}
 
       <div className="bg-white border border-stone-200 rounded-lg p-6 mb-6">
         <h3 className="font-medium text-stone-900 mb-1">Where the historical claims went</h3>
@@ -348,6 +425,16 @@ function ScenarioToggle({ scenario, onScenarioChange }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function RatioCard({ label, value, sub }) {
+  return (
+    <div className="border border-stone-200 rounded p-3">
+      <div className="text-[10px] uppercase tracking-wider text-stone-500 mb-1">{label}</div>
+      <div className="font-mono num text-base text-stone-900 mb-0.5">{value}</div>
+      <div className="text-[10px] text-stone-500">{sub}</div>
     </div>
   );
 }
