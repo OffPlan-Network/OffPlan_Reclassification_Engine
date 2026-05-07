@@ -211,28 +211,52 @@ function indemnityEventType(bucket, category, modeledCost) {
 // Returns { monthlyOutflow, monthlyReimbursement, annualResidual,
 //           annualIndemnityOffset, annualStopLossShift, totalEvents }.
 function simulateOnceFromCatalog({ catalog, lives, scenario, lagMonths, rng, indemnityBenefits }) {
-  // Pass 1: generate events.
+  // Pass 1: generate primary events plus complications. Complications occur
+  // with probability tier.complication_probability, on the same member, of
+  // the same tier, lag_days later (log-normal). Cap depth at 3 so a chain
+  // of complications can't run away — beyond that, prevalence falls off
+  // sharply per published utilization data anyway.
   const events = [];
+  let totalComplications = 0;
+  const MAX_DEPTH = 3;
+
+  function generateOne(tier, memberId, monthAtIndex, depth) {
+    const allowed = sampleTierCost(tier, rng);
+    const month = monthAtIndex != null ? monthAtIndex : Math.floor(rng() * 12);
+    const modeledCost = reduceEventAllowed(allowed, tier.bucket, scenario);
+    events.push({
+      memberId,
+      month,
+      bucket: tier.bucket,
+      category: tier.normalized_category,
+      allowed,
+      modeledCost,
+      indemnityOffset: 0,
+      stopLossAmount: 0,
+    });
+
+    // Roll for a complication, if this tier has one configured and we
+    // haven't exceeded recursion depth.
+    const cp = Number(tier.complication_probability) || 0;
+    if (cp > 0 && depth < MAX_DEPTH && rng() < cp) {
+      const median = Number(tier.complication_lag_days_median) || 21;
+      const sigma = Number(tier.complication_lag_days_sigma) || 0.5;
+      const lagDays = sampleLogNormal(Math.log(median), sigma, rng);
+      const monthDelta = Math.floor(lagDays / 30);
+      const compMonth = Math.min(11, month + monthDelta);
+      totalComplications++;
+      generateOne(tier, memberId, compMonth, depth + 1);
+    }
+  }
+
   for (const tier of catalog) {
     const expected = tier.lambda_per_member_year * lives;
     const n = tier.freq_dist === 'negbin' && tier.freq_k > 0
       ? sampleNegBin(expected, tier.freq_k, rng)
       : samplePoisson(expected, rng);
     for (let i = 0; i < n; i++) {
-      const allowed = sampleTierCost(tier, rng);
-      const memberId = Math.floor(rng() * lives); // synthetic; collisions are intentional (multi-claim members)
-      const month = Math.floor(rng() * 12);
-      const modeledCost = reduceEventAllowed(allowed, tier.bucket, scenario);
-      events.push({
-        memberId,
-        month,
-        bucket: tier.bucket,
-        category: tier.normalized_category,
-        allowed,
-        modeledCost,
-        indemnityOffset: 0,
-        stopLossAmount: 0,
-      });
+      const memberId = Math.floor(rng() * lives);
+      generateOne(tier, memberId, null, 0);
     }
   }
   const totalEvents = events.length;
@@ -300,7 +324,7 @@ function simulateOnceFromCatalog({ catalog, lives, scenario, lagMonths, rng, ind
     }
   }
 
-  return { monthlyOutflow, monthlyReimbursement, annualResidual, annualIndemnityOffset, annualStopLossShift, totalEvents };
+  return { monthlyOutflow, monthlyReimbursement, annualResidual, annualIndemnityOffset, annualStopLossShift, totalEvents, totalComplications };
 }
 
 // Apply aggregate stop-loss corridor in-place: if annual residual exceeds
@@ -649,6 +673,7 @@ function simulateLiquidityTierGenerated({ employer, scenario, modeledClaims, opt
   let monthlyOutflowSum = 0;
   let monthlyOutflowCount = 0;
   let totalEvents = 0;
+  let totalComplications = 0;
   let totalAggregateRecovery = 0;
   let runsTriggeringAggregate = 0;
 
@@ -656,6 +681,7 @@ function simulateLiquidityTierGenerated({ employer, scenario, modeledClaims, opt
     const r = simulateOnceFromCatalog({ catalog, lives, scenario, lagMonths, rng, indemnityBenefits });
     annualResiduals[i] = r.annualResidual;
     totalEvents += r.totalEvents;
+    totalComplications += r.totalComplications;
     for (let t = 0; t < 12; t++) {
       monthlyOutflowSum += r.monthlyOutflow[t];
       monthlyOutflowCount++;
@@ -721,6 +747,8 @@ function simulateLiquidityTierGenerated({ employer, scenario, modeledClaims, opt
       out_of_band: driftPct != null && Math.abs(driftPct) > 0.10,
       total_events_simulated: totalEvents,
       mean_events_per_run: totalEvents / runs,
+      mean_complications_per_run: totalComplications / runs,
+      complications_share_of_events: totalEvents > 0 ? totalComplications / totalEvents : 0,
     },
     aggregate_stop_loss: scenario?.aggregate_stop_loss_enabled
       ? {

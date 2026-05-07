@@ -162,6 +162,15 @@ export const OFFPLAN_FIXED_OVERHEAD_PEPM =
 // mu = ln(mean) - sigma^2/2; for Pareto Type I, scale = mean * (shape-1)/shape.
 // Mean cost is documented for human sanity-check; the runtime engine resolves
 // from cost_mu/cost_sigma or pareto_scale/pareto_shape.
+//
+// Complication parameters per Spec v1.2 §4.1:
+//   complication_probability — chance an event triggers a follow-on event
+//     within the lag window, on the same member, of the same tier
+//   complication_lag_days_median + complication_lag_days_sigma — log-normal
+//     lag from index event to follow-on (sigma is the lognormal σ; median
+//     is converted to mu via ln(median))
+// Per-spec defaults: T5 0.04, T6 0.06, T7 0.10, T8 0.18, T9 0.25; T1-T4
+// have no clinical model for clustering and are left at 0.
 export const EVENT_TIER_CATALOG = [
   // T1 — Primary care. DPC absorbs entirely so the cost rarely materializes,
   // but we still generate events so the cascade's DPC-elimination math sees them.
@@ -173,19 +182,24 @@ export const EVENT_TIER_CATALOG = [
   // T4 — Advanced imaging.
   { tier: 4, label: 'Imaging (advanced)',         lambda_per_member_year: 0.30, bucket: 'B', normalized_category: 'Imaging',            cost_dist: 'lognormal', cost_mu: 7.23,  cost_sigma: 0.55, mean_cost: 1600 },
   // T5 — ASC outpatient procedure.
-  { tier: 5, label: 'ASC outpatient procedure',   lambda_per_member_year: 0.10, bucket: 'B', normalized_category: 'Outpatient Surgery', cost_dist: 'lognormal', cost_mu: 8.23,  cost_sigma: 0.7, mean_cost: 4800 },
+  { tier: 5, label: 'ASC outpatient procedure',   lambda_per_member_year: 0.10, bucket: 'B', normalized_category: 'Outpatient Surgery', cost_dist: 'lognormal', cost_mu: 8.23,  cost_sigma: 0.7, mean_cost: 4800,
+    complication_probability: 0.04, complication_lag_days_median: 21, complication_lag_days_sigma: 0.5 },
   // T6 — ER, low acuity.
-  { tier: 6, label: 'ER visit (low acuity)',      lambda_per_member_year: 0.14, bucket: 'C', normalized_category: 'ER',                 cost_dist: 'lognormal', cost_mu: 7.37,  cost_sigma: 0.5, mean_cost: 1800 },
+  { tier: 6, label: 'ER visit (low acuity)',      lambda_per_member_year: 0.14, bucket: 'C', normalized_category: 'ER',                 cost_dist: 'lognormal', cost_mu: 7.37,  cost_sigma: 0.5, mean_cost: 1800,
+    complication_probability: 0.06, complication_lag_days_median: 14, complication_lag_days_sigma: 0.6 },
   // T7 — ER, high acuity.
-  { tier: 7, label: 'ER visit (high acuity)',     lambda_per_member_year: 0.05, bucket: 'C', normalized_category: 'ER',                 cost_dist: 'lognormal', cost_mu: 8.53,  cost_sigma: 0.7, mean_cost: 6500 },
+  { tier: 7, label: 'ER visit (high acuity)',     lambda_per_member_year: 0.05, bucket: 'C', normalized_category: 'ER',                 cost_dist: 'lognormal', cost_mu: 8.53,  cost_sigma: 0.7, mean_cost: 6500,
+    complication_probability: 0.10, complication_lag_days_median: 10, complication_lag_days_sigma: 0.7 },
   // T8 — Inpatient admission. Heavy tail. Pareto scale = mean*(shape-1)/shape.
   // freq_dist='negbin' with freq_k=2 produces variance ≈ mean × 1.5 — modest
   // over-dispersion that matches inpatient utilization patterns in
   // chronic-prevalent populations (per Spec v1.2 §4 — "Negative Binomial w/
   // chronic"). Lower freq_k = heavier tail in event count distribution.
-  { tier: 8, label: 'Inpatient admission',        lambda_per_member_year: 0.030, bucket: 'E', normalized_category: 'Inpatient',         cost_dist: 'pareto',    pareto_scale: 8000,  pareto_shape: 1.4, mean_cost: 28000, freq_dist: 'negbin', freq_k: 2.0 },
+  { tier: 8, label: 'Inpatient admission',        lambda_per_member_year: 0.030, bucket: 'E', normalized_category: 'Inpatient',         cost_dist: 'pareto',    pareto_scale: 8000,  pareto_shape: 1.4, mean_cost: 28000, freq_dist: 'negbin', freq_k: 2.0,
+    complication_probability: 0.18, complication_lag_days_median: 21, complication_lag_days_sigma: 0.8 },
   // T9 — Inpatient catastrophic. Rare, very heavy tail.
-  { tier: 9, label: 'Inpatient catastrophic',     lambda_per_member_year: 0.003, bucket: 'E', normalized_category: 'Inpatient',         cost_dist: 'pareto',    pareto_scale: 41538, pareto_shape: 1.3, mean_cost: 180000 },
+  { tier: 9, label: 'Inpatient catastrophic',     lambda_per_member_year: 0.003, bucket: 'E', normalized_category: 'Inpatient',         cost_dist: 'pareto',    pareto_scale: 41538, pareto_shape: 1.3, mean_cost: 180000,
+    complication_probability: 0.25, complication_lag_days_median: 30, complication_lag_days_sigma: 0.9 },
   // T10 — Specialty Rx (simplified to per-event sampling for MVP; the spec's
   // monthly-recurrence model is deferred).
   { tier: 10, label: 'Specialty Rx fill',         lambda_per_member_year: 0.30, bucket: 'D', normalized_category: 'Specialty Rx',       cost_dist: 'lognormal', cost_mu: 7.98,  cost_sigma: 0.6, mean_cost: 3500 },
