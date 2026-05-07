@@ -18,3 +18,5 @@ build/
 
 # Pages preview output (only created by `actions/upload-pages-artifact`)
 _site/
+.vercel
+.env*.local
