@@ -2,7 +2,7 @@
 
 An interactive, single-page React demo of the **OffPlan Claims Reclassification Engine**: a five-stage classification cascade that takes an employer's historical healthcare claims, reclassifies every dollar under the OffPlan architecture (DPC eliminated → cash-pay repriced → indemnity offset → stop-loss shifted → residual funded), and surfaces the resulting employer-cost story.
 
-This codebase is the **deterministic classification layer** of the engine described in `docs/01_OffPlan_Engine_Master_Specification_v33.docx` and `docs/06_OffPlan_Engine_Liquidity_Capital_Modeling_Spec_v12.docx`. The stochastic capital layer (Min Required Liquidity, CER, P50–P99 bands) is **not** in this build — see "What this build does not compute" below.
+This codebase is the **deterministic classification layer** plus a **timing-resample MVP of the stochastic capital layer** of the engine described in `docs/01_OffPlan_Engine_Master_Specification_v33.docx` and `docs/06_OffPlan_Engine_Liquidity_Capital_Modeling_Spec_v12.docx`. The full stochastic build (heavy-tail event variance, chronic clustering, bootstrap CIs) is not yet shipped — see §11 for the per-metric status.
 
 The companion docs in `docs/` are the authoritative spec; this README is the operator-facing summary of how the running app implements them.
 
@@ -476,3 +476,20 @@ The four spec items that are **non-negotiable** in any production reimplementati
 2. **Baseline distinction** — historical claims drive the math; current total healthcare spend drives the savings comparison. Never substitute one for the other.
 3. **Two-block output structure** — Executive Summary + Liquidity Profile (both produced together once the stochastic layer ships).
 4. **Provenance** — eight provenance fields stamped at ingestion and propagated through every output.
+
+---
+
+## 15. Dependency security posture
+
+The runtime tree (everything in `dependencies` + their transitive packages) is what ships to the browser bundle and to Vercel Functions. As of the latest commit, that tree is five top-level packages — `react`, `react-dom`, `lucide-react`, `papaparse`, `drizzle-orm`, `@neondatabase/serverless` — and 50-ish transitive deps, none currently flagged.
+
+Dependabot alerts on this repo are scoped to `devDependencies` only. The vulnerable packages all trace back to `vercel` (the local CLI used for `vercel dev` and `vercel env pull`) or `drizzle-kit` (the schema-management CLI). Specifically: `tar`, `undici`, `minimatch`, `srvx`, `@tootallnate/once`, `esbuild`, and `@esbuild-kit/*` are all transitive deps of those two CLIs and never reach the deployed app.
+
+Confirm the runtime tree is clean before any release:
+
+```bash
+npm ls --omit=dev --all          # lists exactly what ships
+npm audit --omit=dev             # audit only runtime deps
+```
+
+If a Dependabot alert ever lands on a package that appears in `npm ls --omit=dev`, that's a real security finding and must be addressed before the next deploy. Dev-tooling alerts can be dismissed with reason "Vulnerable code is not actually used" (the vulnerable code path is local-CLI-only, not exposed to user input or to production).
