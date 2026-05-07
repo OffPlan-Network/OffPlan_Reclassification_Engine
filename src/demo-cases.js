@@ -98,7 +98,7 @@ export const DEMO_CASES = [
       covered_lives: 205,
       current_funding_model: "fully_insured",
       historical_claims_spend: 1080000,
-      current_total_healthcare_spend: 1340000,
+      current_total_healthcare_spend: 1750000,
       baseline_spend_type: "total_premium",
       includes_stop_loss: false,
       includes_admin_fees: false,

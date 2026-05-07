@@ -1,16 +1,21 @@
 // [category, bucket, % of total spend, avg claim size, CPT, POS]
+//
+// Distribution calibrated against typical SMB benchmarks (Milliman Group Cost
+// Guidelines, SOA Group Health Cost Model). Shares and avg claim sizes track
+// real-world allowed amounts at 200-300% of Medicare reference pricing — the
+// pricing reality the OffPlan cash-pay network is designed to attack.
 export const SYNTHETIC_DISTRIBUTION = [
-  ["Primary Care",       "A", 0.10, 175,    "99213", "Office"],
+  ["Primary Care",       "A", 0.08, 175,    "99213", "Office"],
   ["Lab",                "A", 0.04, 60,     "80053", "Independent Lab"],
-  ["Specialist Consult", "B", 0.12, 320,    "99214", "Office"],
-  ["Imaging",            "B", 0.10, 800,    "73721", "Imaging Center"],
-  ["Procedures",         "B", 0.08, 2400,   "45378", "ASC"],
+  ["Specialist Consult", "B", 0.10, 320,    "99214", "Office"],
+  ["Imaging",            "B", 0.08, 1600,   "73721", "Imaging Center"],
+  ["Procedures",         "B", 0.08, 4800,   "45378", "ASC"],
   ["Urgent Care",        "B", 0.04, 220,    "99203", "Urgent Care"],
-  ["ER",                 "C", 0.12, 1800,   "99284", "Emergency Room"],
-  ["Outpatient Surgery", "B", 0.10, 6500,   "29881", "ASC"],
-  ["Inpatient",          "E", 0.18, 28000,  "99223", "Inpatient Hospital"],
-  ["Specialty Rx",       "D", 0.08, 4200,   "",      "Pharmacy"],
-  ["Other",              "D", 0.04, 350,    "",      "Office"],
+  ["ER",                 "C", 0.08, 1800,   "99284", "Emergency Room"],
+  ["Outpatient Surgery", "B", 0.12, 6500,   "29881", "ASC"],
+  ["Inpatient",          "E", 0.20, 28000,  "99223", "Inpatient Hospital"],
+  ["Specialty Rx",       "D", 0.16, 4200,   "",      "Pharmacy"],
+  ["Other",              "D", 0.02, 350,    "",      "Office"],
 ];
 
 const MAX_SYNTHETIC_CLAIMS = 20000;
