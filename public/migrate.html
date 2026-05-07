@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>OffPlan · localStorage → Postgres migration</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1.25rem; color: #1c1917; line-height: 1.55; }
+    h1 { font-size: 1.5rem; margin-bottom: 0.25rem; }
+    .lead { color: #57534e; font-size: 0.95rem; margin-bottom: 1.5rem; }
+    .panel { background: #fafaf9; border: 1px solid #e7e5e4; border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 1rem; }
+    .panel h2 { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; color: #78716c; margin: 0 0 0.5rem; }
+    button { background: #1c1917; color: #fafaf9; border: 0; padding: 0.65rem 1.25rem; border-radius: 6px; font-size: 0.9rem; font-weight: 500; cursor: pointer; }
+    button:hover { background: #292524; }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    button.danger { background: #b91c1c; }
+    button.danger:hover { background: #991b1b; }
+    .controls { display: flex; gap: 0.6rem; align-items: center; margin: 0.75rem 0 1rem; flex-wrap: wrap; }
+    .check { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: #44403c; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid #f5f5f4; }
+    th { font-weight: 600; color: #57534e; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.05em; }
+    td.size, td.status { text-align: right; font-variant-numeric: tabular-nums; font-family: ui-monospace, monospace; }
+    .status.ok { color: #15803d; }
+    .status.err { color: #b91c1c; }
+    .status.skip { color: #78716c; }
+    pre.log { background: #1c1917; color: #d6d3d1; padding: 0.75rem; border-radius: 6px; font-size: 0.78rem; max-height: 14rem; overflow-y: auto; margin-top: 0.5rem; }
+    .summary { font-weight: 500; margin-top: 0.5rem; }
+    .summary.ok { color: #15803d; }
+    .summary.warn { color: #a16207; }
+    .summary.err { color: #b91c1c; }
+    code { font-family: ui-monospace, monospace; background: #f5f5f4; padding: 0.1rem 0.3rem; border-radius: 3px; font-size: 0.85em; }
+  </style>
+</head>
+<body>
+  <h1>localStorage → Postgres migration</h1>
+  <p class="lead">
+    One-shot helper. Reads every <code>offplan_engine:</code> key from this browser's localStorage and PUTs it to <code>/api/storage/&lt;key&gt;</code>. Idempotent — running twice overwrites the same rows. Run this from the same origin where your localStorage data lives.
+  </p>
+
+  <div class="panel">
+    <h2>Inventory</h2>
+    <div id="inventory">Scanning…</div>
+  </div>
+
+  <div class="controls">
+    <button id="migrate" disabled>Run migration</button>
+    <label class="check">
+      <input type="checkbox" id="dry-run" checked>
+      Dry run (just hit GET to confirm reachability, do not write)
+    </label>
+  </div>
+
+  <div class="panel" id="result-panel" style="display:none;">
+    <h2>Result</h2>
+    <div id="summary" class="summary"></div>
+    <pre id="log" class="log"></pre>
+  </div>
+
+  <script>
+    const NAMESPACE = 'offplan_engine:';
+
+    function readInventory() {
+      const items = [];
+      try {
+        const len = localStorage.length || 0;
+        for (let i = 0; i < len; i++) {
+          const fullKey = localStorage.key(i);
+          if (typeof fullKey !== 'string' || !fullKey.startsWith(NAMESPACE)) continue;
+          const key = fullKey.slice(NAMESPACE.length);
+          const raw = localStorage.getItem(fullKey) || '';
+          items.push({ key, bytes: raw.length, raw });
+        }
+      } catch (err) {
+        return { error: String(err), items: [] };
+      }
+      items.sort((a, b) => a.key.localeCompare(b.key));
+      return { items };
+    }
+
+    function renderInventory(inv) {
+      const el = document.getElementById('inventory');
+      if (inv.error) {
+        el.innerHTML = '<span class="status err">localStorage unavailable: ' + inv.error + '</span>';
+        return;
+      }
+      if (!inv.items.length) {
+        el.innerHTML = '<em>No <code>offplan_engine:</code> keys found in this browser. Nothing to migrate.</em>';
+        return;
+      }
+      const total = inv.items.reduce((s, x) => s + x.bytes, 0);
+      const tableRows = inv.items.map(it =>
+        `<tr><td><code>${it.key}</code></td><td class="size">${it.bytes.toLocaleString()} B</td><td class="status" id="status-${cssEscape(it.key)}">—</td></tr>`
+      ).join('');
+      el.innerHTML =
+        `<div style="margin-bottom:0.4rem;color:#44403c;font-size:0.85rem;">${inv.items.length} key${inv.items.length === 1 ? '' : 's'}, ${total.toLocaleString()} bytes total.</div>` +
+        `<table><thead><tr><th>Key</th><th class="size">Size</th><th class="size">Status</th></tr></thead><tbody>${tableRows}</tbody></table>`;
+    }
+
+    function cssEscape(s) {
+      return s.replace(/[^a-zA-Z0-9_-]/g, '_');
+    }
+
+    function setStatus(key, cls, text) {
+      const td = document.getElementById('status-' + cssEscape(key));
+      if (td) {
+        td.className = 'status ' + cls;
+        td.textContent = text;
+      }
+    }
+
+    function logLine(text) {
+      const log = document.getElementById('log');
+      log.textContent += text + '\n';
+      log.scrollTop = log.scrollHeight;
+    }
+
+    async function migrate() {
+      const dryRun = document.getElementById('dry-run').checked;
+      const inv = readInventory();
+      if (inv.error || !inv.items.length) return;
+
+      document.getElementById('migrate').disabled = true;
+      document.getElementById('result-panel').style.display = '';
+      const summaryEl = document.getElementById('summary');
+      summaryEl.className = 'summary';
+      summaryEl.textContent = `${dryRun ? 'Dry run' : 'Migrating'} ${inv.items.length} keys…`;
+      document.getElementById('log').textContent = '';
+
+      let ok = 0;
+      let skipped = 0;
+      let failed = 0;
+
+      for (const it of inv.items) {
+        const url = '/api/storage/' + encodeURIComponent(it.key);
+        try {
+          let parsed;
+          try { parsed = JSON.parse(it.raw); }
+          catch (err) {
+            setStatus(it.key, 'err', 'unparseable');
+            logLine(`SKIP ${it.key} — value is not valid JSON`);
+            skipped++;
+            continue;
+          }
+
+          if (dryRun) {
+            const res = await fetch(url, { method: 'GET' });
+            if (res.ok) {
+              setStatus(it.key, 'skip', 'reachable');
+              logLine(`OK   ${it.key} (dry run, ${it.bytes} bytes)`);
+              ok++;
+            } else {
+              setStatus(it.key, 'err', 'HTTP ' + res.status);
+              logLine(`FAIL ${it.key} — GET returned ${res.status}`);
+              failed++;
+            }
+          } else {
+            const res = await fetch(url, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ value: parsed }),
+            });
+            if (res.ok) {
+              setStatus(it.key, 'ok', 'written');
+              logLine(`OK   ${it.key} (${it.bytes} bytes)`);
+              ok++;
+            } else {
+              setStatus(it.key, 'err', 'HTTP ' + res.status);
+              logLine(`FAIL ${it.key} — PUT returned ${res.status}`);
+              failed++;
+            }
+          }
+        } catch (err) {
+          setStatus(it.key, 'err', 'network');
+          logLine(`FAIL ${it.key} — ${String(err)}`);
+          failed++;
+        }
+      }
+
+      summaryEl.classList.remove('ok', 'warn', 'err');
+      const action = dryRun ? 'Dry run complete' : 'Migration complete';
+      if (failed > 0) {
+        summaryEl.classList.add(ok > 0 ? 'warn' : 'err');
+        summaryEl.textContent = `${action}: ${ok} ok, ${skipped} skipped, ${failed} failed.`;
+      } else {
+        summaryEl.classList.add('ok');
+        summaryEl.textContent = `${action}: ${ok} ok, ${skipped} skipped, 0 failed. ${dryRun ? "Uncheck 'Dry run' and click again to actually write." : "Your localStorage data is now in Postgres. Set VITE_STORAGE_BACKEND=api in your env and reload the app."}`;
+      }
+
+      document.getElementById('migrate').disabled = false;
+    }
+
+    const inv = readInventory();
+    renderInventory(inv);
+    document.getElementById('migrate').disabled = !inv.items?.length;
+    document.getElementById('migrate').addEventListener('click', migrate);
+  </script>
+</body>
+</html>

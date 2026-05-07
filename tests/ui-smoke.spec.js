@@ -109,6 +109,49 @@ test('4. Stochastic MRL renders on dashboard with positive USD value and CER', a
   await expect(profile.getByText(/^P50\b/)).toBeVisible();
 });
 
+test('5. /migrate.html migrates localStorage data into Postgres', async ({ page, request }) => {
+  // Seed three keys into the page's localStorage as if a previous session
+  // had been running with VITE_STORAGE_BACKEND=localStorage. We do this by
+  // navigating to a same-origin page first (so localStorage is unlocked),
+  // then evaluating the seed in page context.
+  await page.goto('/');
+  await page.evaluate(() => {
+    localStorage.setItem('offplan_engine:employer:DEMO_LOCAL', JSON.stringify({ id: 'DEMO_LOCAL', name: 'Local Storage Co.', covered_lives: 99 }));
+    localStorage.setItem('offplan_engine:scenario:DEMO_LOCAL', JSON.stringify({ name: 'Expected', stop_loss_pepm: 100 }));
+    localStorage.setItem('offplan_engine:claims:DEMO_LOCAL', JSON.stringify([{ claim_id: 'L1', allowed_amount: 250 }]));
+  });
+
+  // Open the migrate page, uncheck dry-run, run the migration.
+  await page.goto('/migrate.html');
+  await expect(page.getByRole('heading', { name: /localStorage.*Postgres/i })).toBeVisible();
+  // The inventory should list our three keys.
+  const inv = page.locator('#inventory');
+  await expect(inv).toContainText('employer:DEMO_LOCAL');
+  await expect(inv).toContainText('scenario:DEMO_LOCAL');
+  await expect(inv).toContainText('claims:DEMO_LOCAL');
+
+  await page.locator('#dry-run').uncheck();
+  await page.locator('#migrate').click();
+
+  // Wait for the summary to land. The success path text begins with
+  // "Migration complete:" and ends with the post-migrate instructions.
+  const summary = page.locator('#summary');
+  await expect(summary).toContainText('Migration complete', { timeout: 10_000 });
+  await expect(summary).toContainText('0 failed');
+
+  // Verify Postgres actually has the data.
+  for (const k of ['employer:DEMO_LOCAL', 'scenario:DEMO_LOCAL', 'claims:DEMO_LOCAL']) {
+    const r = await request.get('/api/storage/' + encodeURIComponent(k));
+    expect(r.ok()).toBeTruthy();
+    const { value } = await r.json();
+    expect(value, `${k} should round-trip to Postgres`).toBeTruthy();
+  }
+
+  const empRes = await request.get('/api/storage/' + encodeURIComponent('employer:DEMO_LOCAL'));
+  const { value: emp } = await empRes.json();
+  expect(emp).toMatchObject({ id: 'DEMO_LOCAL', name: 'Local Storage Co.', covered_lives: 99 });
+});
+
 test('3. Editing a scenario knob persists to Postgres on change', async ({ page, request }) => {
   await loadAbcDemo(page);
 

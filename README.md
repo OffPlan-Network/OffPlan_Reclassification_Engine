@@ -12,15 +12,26 @@ The companion docs in `docs/` are the authoritative spec; this README is the ope
 
 ```bash
 npm install
-npm run dev          # Vite dev server with HMR
+npm run dev          # Vite dev server with HMR (localStorage backend)
+npm run dev:vercel   # Vite + /api/* Vercel Functions on http://localhost:3000 (DB backend)
 npm run build        # production build → dist/
 npm run preview      # serve the built dist/ locally
 npm run gen-demo     # regenerate frozen demo JSONs in public/data/
+npm run db:push      # apply Drizzle schema to Neon (DDL)
+npm run db:smoke     # exercise the storage handlers against Neon directly
+npm run api:test     # spawn local API server + run HTTP-level smoke
+npm run test:e2e     # Playwright UI smoke against vercel dev
 ```
 
-There are no tests, no linter, and no typechecker configured. The app is purely client-side — no backend, no API. Persistence is `localStorage` (with an in-memory fallback for sandboxed contexts), namespaced under `offplan_engine:`.
+Persistence has two backends, switched by `VITE_STORAGE_BACKEND` in `.env.local`:
+- `localStorage` (default) — namespaced under `offplan_engine:`, with an in-memory fallback for sandboxed contexts
+- `api` — reads/writes go to `/api/storage/*` (Vercel Functions backed by Neon Postgres via Drizzle)
 
-Deployment: Vercel, via its GitHub integration — Vercel watches `master`/`main` and ships every push. No GitHub Actions workflow involved.
+Both are wired through the same `db` interface in `src/storage.js` so the rest of the app is backend-agnostic.
+
+To move existing localStorage data into Postgres after flipping the backend, open `/migrate.html` in the browser (same origin as your data — local dev or Vercel preview), confirm the inventory, untick "Dry run", and click "Run migration". Idempotent — running twice overwrites the same rows.
+
+Deployment: Vercel, via its GitHub integration — Vercel watches `master`/`main` and ships every push. The `/api/*` directory is auto-deployed as Serverless Functions; the SPA serves from `dist/`.
 
 ### When to re-run `npm run gen-demo`
 
