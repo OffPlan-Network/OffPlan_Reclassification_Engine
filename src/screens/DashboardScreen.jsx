@@ -257,6 +257,31 @@ export function DashboardScreen({ employer, scenario, result, classifiedClaims, 
             />
           </div>
 
+          {liquidity.aggregate_stop_loss?.enabled && (
+            <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+              <RatioCard
+                label="Aggregate · Trigger Rate"
+                value={fmtPct(liquidity.aggregate_stop_loss.trigger_rate, 1)}
+                sub={`${fmtNum(liquidity.aggregate_stop_loss.runs_triggering)} of ${fmtNum(liquidity.meta.runs)} runs`}
+              />
+              <RatioCard
+                label="Aggregate · Attachment"
+                value={fmtUSD(liquidity.aggregate_stop_loss.attachment_dollars)}
+                sub={`${(liquidity.aggregate_stop_loss.attachment_pct * 100).toFixed(0)}% of expected residual`}
+              />
+              <RatioCard
+                label="Aggregate · Mean Recovery"
+                value={fmtUSD(liquidity.aggregate_stop_loss.mean_recovery_per_run)}
+                sub="Per simulated year"
+              />
+              <RatioCard
+                label="Expected Residual"
+                value={fmtUSD(liquidity.aggregate_stop_loss.expected_residual)}
+                sub="Underwriting baseline"
+              />
+            </div>
+          )}
+
           <div className="mt-4 text-[11px] text-stone-500 leading-relaxed border-t border-stone-100 pt-3">
             <strong>Scope note:</strong>{' '}
             {liquidityMode === 'timing-resample' ? (

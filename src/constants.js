@@ -91,6 +91,8 @@ export const SCENARIO_PRESETS = {
     attachment_point: 75000,
     stop_loss_pepm: 130,
     risk_margin: 1.40,
+    aggregate_stop_loss_enabled: true,
+    aggregate_attachment_pct: 1.25,
     description: "Pre-experience underwriting. Stop-loss priced at conservative carrier markup over the $100 anchor.",
   },
   expected: {
@@ -103,6 +105,8 @@ export const SCENARIO_PRESETS = {
     attachment_point: 50000,
     stop_loss_pepm: 100,
     risk_margin: 1.25,
+    aggregate_stop_loss_enabled: true,
+    aggregate_attachment_pct: 1.25,
     description: "Balanced view. Anchored to the $582.20 all-in stack and $200 PMPM claims fund working assumption.",
   },
   aggressive: {
@@ -115,6 +119,8 @@ export const SCENARIO_PRESETS = {
     attachment_point: 50000,
     stop_loss_pepm: 85,
     risk_margin: 1.10,
+    aggregate_stop_loss_enabled: true,
+    aggregate_attachment_pct: 1.20,
     description: "Post-experience efficiency ceiling. Stop-loss reflects validated population experience.",
   },
 };

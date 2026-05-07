@@ -303,6 +303,26 @@ function simulateOnceFromCatalog({ catalog, lives, scenario, lagMonths, rng, ind
   return { monthlyOutflow, monthlyReimbursement, annualResidual, annualIndemnityOffset, annualStopLossShift, totalEvents };
 }
 
+// Apply aggregate stop-loss corridor in-place: if annual residual exceeds
+// `expectedResidual × aggregate_attachment_pct`, reimburse the excess at
+// month 11 (final plan-year month). Returns the reimbursement amount.
+//
+// Note: aggregate stop-loss only helps liquidity when reimbursement arrives
+// within the simulation window. Real carriers settle the following quarter,
+// so this approximation is slightly aggressive — it lets the late months
+// see the recovery. For a multi-year liquidity model the cross-year settle
+// would matter more; for a single-year MRL it's a reasonable boundary case.
+function applyAggregateStopLoss(monthlyReimbursement, annualResidual, expectedResidual, scenario) {
+  if (!scenario?.aggregate_stop_loss_enabled) return 0;
+  const pct = Number(scenario.aggregate_attachment_pct) || 1.25;
+  if (!(pct > 0) || expectedResidual <= 0) return 0;
+  const attachment = expectedResidual * pct;
+  if (annualResidual <= attachment) return 0;
+  const excess = annualResidual - attachment;
+  monthlyReimbursement[11] += excess;
+  return excess;
+}
+
 function simulateOnce(claims, monthlyContribution, lagMonths, rng, tailOverlay) {
   const monthlyOutflow = new Array(12).fill(0);
   const monthlyReimbursement = new Array(12).fill(0);
@@ -351,16 +371,16 @@ function simulateOnce(claims, monthlyContribution, lagMonths, rng, tailOverlay) 
     }
   }
 
-  // MRL = max upfront capital required so that R + cumulative_replenishment +
-  // cumulative_reimbursement - cumulative_outflow >= 0 across all months.
-  // Equivalently: max over t of cumulative net outflow.
-  let required = 0;
-  let cumDeficit = 0;
+  // Compute the run's annual residual now (after timing-resample + tail
+  // overlay outflow, before any aggregate-stop-loss reimbursement). The
+  // caller may apply aggregate stop-loss to monthlyReimbursement before
+  // the MRL drawdown calculation.
+  let annualResidual = 0;
   for (let t = 0; t < 12; t++) {
-    cumDeficit += monthlyOutflow[t] - monthlyContribution - monthlyReimbursement[t];
-    if (cumDeficit > required) required = cumDeficit;
+    annualResidual += monthlyOutflow[t] - monthlyReimbursement[t];
   }
-  return { mrl: required, monthlyOutflow, tailEventCount, tailGrossOutflow };
+
+  return { monthlyOutflow, monthlyReimbursement, annualResidual, tailEventCount, tailGrossOutflow };
 }
 
 /**
@@ -444,17 +464,44 @@ function simulateLiquidityTimingResample({ employer, scenario, modeledClaims, op
   const seed = hashSeed([employer?.id, scenario?.name, runs, lagMonths, attachmentPoint, tailOverlay ? tailOverlay.expectedCount.toFixed(4) : 'no-tail']);
   const rng = mulberry32(seed);
 
+  // Expected residual for aggregate stop-loss attachment. In timing-
+  // resample mode this is the deterministic claims' residual (sum of
+  // residual_amount across modeled claims) — what the engine actually
+  // computed. We use it as the "expected pool" the carrier underwrote against.
+  const expectedAnnualResidual = claims.reduce(
+    (s, c) => s + (Number(c.residual_amount) || 0),
+    0,
+  );
+
   const mrls = new Float64Array(runs);
   let monthlyOutflowSum = 0;
   let monthlyOutflowCount = 0;
   let totalTailEvents = 0;
   let totalTailGrossOutflow = 0;
+  let totalAggregateRecovery = 0;
+  let runsTriggeringAggregate = 0;
 
   for (let i = 0; i < runs; i++) {
     const r = simulateOnce(claims, monthlyContribution, lagMonths, rng, tailOverlay);
-    mrls[i] = r.mrl;
     totalTailEvents += r.tailEventCount;
     totalTailGrossOutflow += r.tailGrossOutflow;
+
+    // Aggregate stop-loss corridor on the realized residual.
+    const recovery = applyAggregateStopLoss(r.monthlyReimbursement, r.annualResidual, expectedAnnualResidual, scenario);
+    if (recovery > 0) {
+      totalAggregateRecovery += recovery;
+      runsTriggeringAggregate++;
+    }
+
+    // Compute MRL after all reimbursements (specific lag + aggregate at month 11).
+    let required = 0;
+    let cumDeficit = 0;
+    for (let t = 0; t < 12; t++) {
+      cumDeficit += r.monthlyOutflow[t] - monthlyContribution - r.monthlyReimbursement[t];
+      if (cumDeficit > required) required = cumDeficit;
+    }
+    mrls[i] = required;
+
     for (let t = 0; t < 12; t++) {
       monthlyOutflowSum += r.monthlyOutflow[t];
       monthlyOutflowCount++;
@@ -500,6 +547,17 @@ function simulateLiquidityTimingResample({ employer, scenario, modeledClaims, op
           observed_events_total: totalTailEvents,
           observed_events_per_run: runs > 0 ? totalTailEvents / runs : 0,
           observed_gross_outflow_total: totalTailGrossOutflow,
+        }
+      : { enabled: false },
+    aggregate_stop_loss: scenario?.aggregate_stop_loss_enabled
+      ? {
+          enabled: true,
+          attachment_pct: Number(scenario.aggregate_attachment_pct) || 1.25,
+          expected_residual: expectedAnnualResidual,
+          attachment_dollars: expectedAnnualResidual * (Number(scenario.aggregate_attachment_pct) || 1.25),
+          runs_triggering: runsTriggeringAggregate,
+          trigger_rate: runs > 0 ? runsTriggeringAggregate / runs : 0,
+          mean_recovery_per_run: runs > 0 ? totalAggregateRecovery / runs : 0,
         }
       : { enabled: false },
     meta: {
@@ -576,11 +634,23 @@ function simulateLiquidityTierGenerated({ employer, scenario, modeledClaims, opt
 
   const indemnityBenefits = options.indemnityBenefits || DEFAULT_INDEMNITY_BENEFITS;
 
+  // Pre-compute expected residual for the aggregate corridor. Closed-form
+  // sum of (expected events × per-event residual portion).
+  let expectedAnnualResidual = 0;
+  for (const tier of catalog) {
+    const expectedEvents = tier.lambda_per_member_year * lives;
+    const meanCost = tier.mean_cost ?? estimateTierMean(tier);
+    const { residual } = transformEventForContribution(meanCost, tier.bucket, scenario);
+    expectedAnnualResidual += expectedEvents * residual;
+  }
+
   const mrls = new Float64Array(runs);
   const annualResiduals = new Float64Array(runs);
   let monthlyOutflowSum = 0;
   let monthlyOutflowCount = 0;
   let totalEvents = 0;
+  let totalAggregateRecovery = 0;
+  let runsTriggeringAggregate = 0;
 
   for (let i = 0; i < runs; i++) {
     const r = simulateOnceFromCatalog({ catalog, lives, scenario, lagMonths, rng, indemnityBenefits });
@@ -589,6 +659,13 @@ function simulateLiquidityTierGenerated({ employer, scenario, modeledClaims, opt
     for (let t = 0; t < 12; t++) {
       monthlyOutflowSum += r.monthlyOutflow[t];
       monthlyOutflowCount++;
+    }
+
+    // Aggregate stop-loss corridor (applied in-place on monthlyReimbursement).
+    const recovery = applyAggregateStopLoss(r.monthlyReimbursement, r.annualResidual, expectedAnnualResidual, scenario);
+    if (recovery > 0) {
+      totalAggregateRecovery += recovery;
+      runsTriggeringAggregate++;
     }
 
     // Compute MRL for this run (same drawdown logic as timing-resample).
@@ -645,6 +722,17 @@ function simulateLiquidityTierGenerated({ employer, scenario, modeledClaims, opt
       total_events_simulated: totalEvents,
       mean_events_per_run: totalEvents / runs,
     },
+    aggregate_stop_loss: scenario?.aggregate_stop_loss_enabled
+      ? {
+          enabled: true,
+          attachment_pct: Number(scenario.aggregate_attachment_pct) || 1.25,
+          expected_residual: expectedAnnualResidual,
+          attachment_dollars: expectedAnnualResidual * (Number(scenario.aggregate_attachment_pct) || 1.25),
+          runs_triggering: runsTriggeringAggregate,
+          trigger_rate: runs > 0 ? runsTriggeringAggregate / runs : 0,
+          mean_recovery_per_run: runs > 0 ? totalAggregateRecovery / runs : 0,
+        }
+      : { enabled: false },
     tail: { enabled: false },
     meta: {
       runs,
