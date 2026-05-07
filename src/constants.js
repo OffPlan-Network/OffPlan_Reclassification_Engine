@@ -173,7 +173,11 @@ export const EVENT_TIER_CATALOG = [
   // T7 — ER, high acuity.
   { tier: 7, label: 'ER visit (high acuity)',     lambda_per_member_year: 0.05, bucket: 'C', normalized_category: 'ER',                 cost_dist: 'lognormal', cost_mu: 8.53,  cost_sigma: 0.7, mean_cost: 6500 },
   // T8 — Inpatient admission. Heavy tail. Pareto scale = mean*(shape-1)/shape.
-  { tier: 8, label: 'Inpatient admission',        lambda_per_member_year: 0.030, bucket: 'E', normalized_category: 'Inpatient',         cost_dist: 'pareto',    pareto_scale: 8000,  pareto_shape: 1.4, mean_cost: 28000 },
+  // freq_dist='negbin' with freq_k=2 produces variance ≈ mean × 1.5 — modest
+  // over-dispersion that matches inpatient utilization patterns in
+  // chronic-prevalent populations (per Spec v1.2 §4 — "Negative Binomial w/
+  // chronic"). Lower freq_k = heavier tail in event count distribution.
+  { tier: 8, label: 'Inpatient admission',        lambda_per_member_year: 0.030, bucket: 'E', normalized_category: 'Inpatient',         cost_dist: 'pareto',    pareto_scale: 8000,  pareto_shape: 1.4, mean_cost: 28000, freq_dist: 'negbin', freq_k: 2.0 },
   // T9 — Inpatient catastrophic. Rare, very heavy tail.
   { tier: 9, label: 'Inpatient catastrophic',     lambda_per_member_year: 0.003, bucket: 'E', normalized_category: 'Inpatient',         cost_dist: 'pareto',    pareto_scale: 41538, pareto_shape: 1.3, mean_cost: 180000 },
   // T10 — Specialty Rx (simplified to per-event sampling for MVP; the spec's

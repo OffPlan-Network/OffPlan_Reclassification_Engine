@@ -95,6 +95,46 @@ function sampleParetoTypeI(scale, shape, rng) {
   return scale * Math.pow(u, -1 / shape);
 }
 
+// Gamma sampling via Marsaglia & Tsang (2000) — fast and accurate for
+// shape >= 1; for shape < 1 we use the boost trick (sample shape+1 then
+// scale by U^(1/shape)). Used as the mixing distribution for Negative
+// Binomial sampling below.
+function sampleGamma(shape, scale, rng) {
+  if (shape < 1) {
+    const g = sampleGamma(shape + 1, scale, rng);
+    const u = Math.max(rng(), 1e-12);
+    return g * Math.pow(u, 1 / shape);
+  }
+  const d = shape - 1 / 3;
+  const c = 1 / Math.sqrt(9 * d);
+  while (true) {
+    let x;
+    let v;
+    do {
+      // Box-Muller for the standard normal draw.
+      const u1 = Math.max(rng(), 1e-12);
+      const u2 = rng();
+      x = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+      v = 1 + c * x;
+    } while (v <= 0);
+    v = v * v * v;
+    const u = Math.max(rng(), 1e-12);
+    if (u < 1 - 0.0331 * x * x * x * x) return d * v * scale;
+    if (Math.log(u) < 0.5 * x * x + d * (1 - v + Math.log(v))) return d * v * scale;
+  }
+}
+
+// Negative Binomial sampler via Gamma-Poisson mixture. Parameterized as
+// (mean, dispersion k) where variance = mean + mean^2 / k. Smaller k =
+// more over-dispersion. As k → infinity NegBin → Poisson.
+function sampleNegBin(mean, k, rng) {
+  if (mean <= 0) return 0;
+  if (!(k > 0) || !isFinite(k)) return samplePoisson(mean, rng);
+  // Gamma scale = mean / k; sampled lambda is Poisson rate for this run.
+  const lambda = sampleGamma(k, mean / k, rng);
+  return samplePoisson(lambda, rng);
+}
+
 // Log-normal sampling via Box-Muller for the Z draw. Returns exp(mu + sigma*Z).
 function sampleLogNormal(mu, sigma, rng) {
   const u1 = Math.max(rng(), 1e-12);
@@ -152,7 +192,11 @@ function simulateOnceFromCatalog({ catalog, lives, scenario, lagMonths, rng }) {
 
   for (const tier of catalog) {
     const expected = tier.lambda_per_member_year * lives;
-    const n = samplePoisson(expected, rng);
+    // Tier can opt into Negative Binomial via freq_dist='negbin' + freq_k
+    // (dispersion). Defaults to Poisson otherwise.
+    const n = tier.freq_dist === 'negbin' && tier.freq_k > 0
+      ? sampleNegBin(expected, tier.freq_k, rng)
+      : samplePoisson(expected, rng);
     totalEvents += n;
     for (let i = 0; i < n; i++) {
       const allowed = sampleTierCost(tier, rng);
