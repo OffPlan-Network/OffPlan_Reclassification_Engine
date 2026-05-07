@@ -159,7 +159,7 @@ function DemoCaseCard({ demoCase, onLoad, loading, disabled }) {
   }[demoCase.loader?.kind] || { bg: "bg-stone-50", text: "text-stone-800", border: "border-stone-200" };
 
   return (
-    <div className={`border ${modeColor.border} rounded-lg p-4 flex flex-col`}>
+    <div data-testid={`demo-case-${demoCase.id}`} className={`border ${modeColor.border} rounded-lg p-4 flex flex-col`}>
       <span className={`${modeColor.bg} ${modeColor.text} self-start text-[10px] uppercase tracking-wider px-2 py-0.5 rounded mb-3`}>
         {demoCase.tagline}
       </span>
@@ -188,6 +188,7 @@ function DemoCaseCard({ demoCase, onLoad, loading, disabled }) {
       <button
         onClick={onLoad}
         disabled={loading || disabled}
+        data-testid={`load-demo-${demoCase.id}`}
         className="w-full bg-stone-900 text-white h-10 rounded text-sm font-medium hover:bg-stone-800 disabled:opacity-50 flex items-center justify-center gap-2"
       >
         {loading ? "Loading…" : (

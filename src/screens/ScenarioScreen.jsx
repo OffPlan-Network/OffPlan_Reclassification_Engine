@@ -75,6 +75,7 @@ export function ScenarioScreen({ scenario, onChange, onPreset }) {
             <input
               type="number" value={scenario.stop_loss_pepm}
               onChange={(e) => set("stop_loss_pepm", Number(e.target.value))}
+              data-testid="scenario-stop-loss-pepm"
               className="w-full bg-stone-50 border border-stone-200 rounded px-3 h-10 font-mono num focus:outline-none focus:border-stone-900"
             />
           </Field>

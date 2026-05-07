@@ -20,3 +20,7 @@ build/
 _site/
 .vercel
 .env*.local
+
+# Playwright test artifacts (screenshots, videos, traces, JSON report)
+test-results/
+playwright-report/
