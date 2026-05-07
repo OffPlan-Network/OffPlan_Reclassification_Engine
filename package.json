@@ -7,9 +7,14 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "gen-demo": "node scripts/generate-demo-claims.mjs"
+    "gen-demo": "node scripts/generate-demo-claims.mjs",
+    "db:push": "drizzle-kit push --force",
+    "db:studio": "drizzle-kit studio",
+    "db:smoke": "node --env-file=.env.local scripts/db-smoke.mjs"
   },
   "dependencies": {
+    "@neondatabase/serverless": "^1.1.0",
+    "drizzle-orm": "^0.45.2",
     "lucide-react": "^0.468.0",
     "papaparse": "^5.4.1",
     "react": "^18.3.1",
@@ -17,6 +22,8 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
+    "dotenv": "^17.4.2",
+    "drizzle-kit": "^0.31.10",
     "vite": "^6.0.5"
   }
 }
