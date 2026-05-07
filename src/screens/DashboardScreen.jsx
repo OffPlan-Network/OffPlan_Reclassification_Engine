@@ -101,9 +101,9 @@ export function DashboardScreen({ employer, scenario, result, classifiedClaims, 
         <div className="flex gap-2">
           <AlertTriangle size={16} className="text-amber-700 flex-shrink-0 mt-0.5" />
           <div>
-            <strong>Prototype scope: deterministic classification + timing-resample MRL.</strong>
+            <strong>Prototype scope: deterministic classification + stochastic MRL with tail overlay.</strong>
             <div className="mt-1 leading-relaxed">
-              This build produces the residual fund and the OffPlan stack PEPM (deterministic), plus a Monte Carlo Min Required Liquidity using <em>timing variance only</em> — each modeled claim is placed on a uniform-random month with a 3-month stop-loss reimbursement lag, and we take the P95 of max cumulative drawdown across 1,000 runs. The full stochastic layer specified in Liquidity Spec v1.2 (heavy-tail event variance, chronic clustering, complication lag, aggregate stop-loss, bootstrap CI) is not yet modeled. The MRL number below is therefore a <strong>lower bound</strong> — a population with realized inpatient catastrophic events would require more capital. The "Risk Margin × Residual" formula in §6.6 of the spec is the deprecated v3.0/v3.1 funding construct retained as an intermediate placeholder.
+              This build produces the residual fund and the OffPlan stack PEPM (deterministic), plus a Monte Carlo Min Required Liquidity that combines timing variance over the deterministic claims with a Pareto-distributed catastrophic event overlay. We take the P95 of max cumulative drawdown across 1,000 runs. Still deferred per Liquidity Spec v1.2: chronic clustering, complication lag, NegBin frequency, aggregate stop-loss corridor, bootstrap confidence intervals on percentiles. The MRL is calibrated to spec-anchored numbers but should still be treated as a directional CFO conversation tool, not as an MGU underwriting submission. The "Risk Margin × Residual" formula in §6.6 of the spec is the deprecated v3.0/v3.1 funding construct retained as an intermediate placeholder.
             </div>
           </div>
         </div>
@@ -126,7 +126,7 @@ export function DashboardScreen({ employer, scenario, result, classifiedClaims, 
         </div>
         <div data-testid="mrl-card">
           <div className="text-[10px] uppercase tracking-wider text-stone-400 mb-2">
-            Min Required Liquidity <span className="text-emerald-300 font-normal">· P95 · timing-resample MVP</span>
+            Min Required Liquidity <span className="text-emerald-300 font-normal">· P95 · resample + tail overlay</span>
           </div>
           <div className="font-display text-5xl mb-1 num">
             {liquidity ? fmtUSD(liquidity.mrl) : "—"}
@@ -158,8 +158,14 @@ export function DashboardScreen({ employer, scenario, result, classifiedClaims, 
               </div>
               <p className="text-xs text-stone-500 max-w-2xl leading-relaxed">
                 Distribution of max cumulative drawdown across {fmtNum(liquidity.meta.runs)} simulation runs.
-                Each run resamples claim timing with uniform monthly placement and a {liquidity.meta.lag_months}-month
-                stop-loss reimbursement lag. P95 = MRL.
+                Each run resamples claim timing with uniform monthly placement, a {liquidity.meta.lag_months}-month
+                stop-loss reimbursement lag,
+                {liquidity.tail?.enabled ? (
+                  <> and a Pareto-distributed catastrophic event overlay (λ={liquidity.tail.lambda_per_member_year} per member-year, ~{liquidity.tail.observed_events_per_run.toFixed(2)} events/run observed)</>
+                ) : (
+                  <> and no tail-event overlay</>
+                )}
+                . P95 = MRL.
               </p>
             </div>
             <div className="text-right text-[11px] text-stone-500">
@@ -199,9 +205,12 @@ export function DashboardScreen({ employer, scenario, result, classifiedClaims, 
           </div>
 
           <div className="mt-4 text-[11px] text-stone-500 leading-relaxed border-t border-stone-100 pt-3">
-            <strong>Lower-bound caveat:</strong> this MVP simulates timing variance only. Realized inpatient catastrophic events,
-            chronic clustering, and complication lags would push P95 higher. Use this number as a directional CFO conversation
-            anchor, not as MGU-grade underwriting input. Production replaces this with the full Liquidity Spec v1.2 stochastic layer.
+            <strong>Scope note:</strong> this MVP combines timing variance (resampling deterministic claim months) with a
+            Pareto-distributed catastrophic event overlay (λ={liquidity.tail?.lambda_per_member_year ?? '—'} per member-year,
+            shape={liquidity.tail?.pareto_shape ?? '—'}, scale={fmtUSD(liquidity.tail?.pareto_scale ?? 0)}). Chronic clustering,
+            complication lag, NegBin frequency for over-dispersed tiers, and aggregate stop-loss are still deferred
+            (see README §11). Use this as a directional CFO conversation anchor, not MGU underwriting input.
+            Production replaces this with the full Liquidity Spec v1.2 stochastic layer.
           </div>
         </div>
       )}

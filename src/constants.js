@@ -134,6 +134,34 @@ export const OFFPLAN_FIXED_OVERHEAD_PEPM =
   OFFPLAN_MEMBERSHIP_PEPM + TPA_PEPM + PBM_ADMIN_PEPM +
   FIRSTHEALTH_PEPM + MEDWATCH_PEPM + ACCIDENT_INDEMNITY_PEPM; // 282.20
 
+// Catastrophic-event tail overlay parameters for the stochastic liquidity
+// layer. Each Monte Carlo run draws N ~ Poisson(lambda × covered_lives)
+// extra catastrophic events on top of the resampled deterministic claims.
+// Each event is Pareto-distributed (Type I, scale × U^(-1/shape)).
+//
+// These represent unobserved tail risk — population-level risk of
+// inpatient catastrophic admissions / specialty Rx high-cost months that
+// may not have manifested in this employer's specific claims year. Without
+// the overlay, MRL is a lower bound (the simulator only models timing
+// variance on observed claims).
+//
+// Calibration anchors (industry benchmarks):
+//   - 0.5–1.5 % of covered population per year experiences a $50K+ allowed
+//     event. lambda=0.005 represents the bottom of that range as the
+//     "additional" risk on top of historical, so total expected
+//     catastrophic events ≈ deterministic + 0.005 × lives per year.
+//   - Pareto shape=1.5 is heavy-tailed but not pathological (E[X] finite).
+//     scale=$50K matches typical specific stop-loss attachment.
+//   - At shape=1.5, scale=50K: median $79K, mean $150K, P95 $369K, P99 $1.08M.
+//
+// Override per-call via simulateLiquidity({ ..., options: { tailOverlay: {...} }}).
+export const CATASTROPHIC_TAIL_DEFAULTS = {
+  enabled: true,
+  lambda_per_member_year: 0.005,
+  pareto_scale: 50000,
+  pareto_shape: 1.5,
+};
+
 export const INPUT_MODES = {
   FULL:    { id: "full",    label: "Full Claims",     confidence: "high",   description: "Member-level CPT-line claims" },
   PARTIAL: { id: "partial", label: "Partial Summary", confidence: "medium", description: "Category-level totals" },

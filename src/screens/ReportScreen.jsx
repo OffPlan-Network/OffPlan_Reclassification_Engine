@@ -298,9 +298,13 @@ export function ReportScreen({ employer, scenario, result, classifiedClaims, inp
             </div>
             <p className="text-sm text-stone-600 mb-5 max-w-3xl">
               Distribution of max cumulative drawdown across {fmtNum(liquidity.meta.runs)} simulation runs.
-              MVP scope: timing-resample only, {liquidity.meta.lag_months}-month stop-loss reimbursement lag, P95 = MRL.
-              Heavy-tail event variance and chronic clustering deferred to the full Liquidity Spec v1.2 build —
-              MRL shown is therefore a <strong>lower bound</strong>.
+              Method: timing-resample of deterministic claims plus a Pareto-distributed catastrophic event overlay
+              {liquidity.tail?.enabled
+                ? <> (λ={liquidity.tail.lambda_per_member_year} per member-year, scale={fmtUSD(liquidity.tail.pareto_scale)}, shape={liquidity.tail.pareto_shape})</>
+                : <> (overlay disabled)</>
+              }, {liquidity.meta.lag_months}-month stop-loss reimbursement lag. P95 = MRL.
+              Chronic clustering, complication lag, NegBin frequency, and aggregate stop-loss are still deferred
+              per Liquidity Spec v1.2 — see README §11.
             </p>
             <table className="w-full text-sm border border-stone-200 rounded mb-4">
               <tbody>
@@ -312,6 +316,18 @@ export function ReportScreen({ employer, scenario, result, classifiedClaims, inp
                 <AssumptionRow label="Liquidity Coverage Ratio (MRL / mean monthly outflow)" value={liquidity.lcr ? `${liquidity.lcr.toFixed(1)}×` : "—"} />
                 <AssumptionRow label="Stress Coverage Ratio (MRL / P75)" value={liquidity.scr ? `${liquidity.scr.toFixed(1)}×` : "—"} />
                 <AssumptionRow label="Equivalent Level-Funded Total Cost (ELF)" value={fmtUSD(liquidity.elf)} />
+                {liquidity.tail?.enabled && (
+                  <>
+                    <AssumptionRow
+                      label="Tail overlay · expected events / yr"
+                      value={liquidity.tail.expected_events_per_year.toFixed(2)}
+                    />
+                    <AssumptionRow
+                      label="Tail overlay · observed events / run (avg)"
+                      value={liquidity.tail.observed_events_per_run.toFixed(2)}
+                    />
+                  </>
+                )}
                 <AssumptionRow label="Method" value={liquidity.meta.method} />
               </tbody>
             </table>
@@ -337,7 +353,7 @@ export function ReportScreen({ employer, scenario, result, classifiedClaims, inp
 
         <div className="border-t border-stone-300 pt-6 text-xs text-stone-500 leading-relaxed">
           <strong className="text-stone-700">Important: </strong>
-          This report combines the deterministic classification layer with a timing-resample MVP of the stochastic liquidity layer. It is not an insurance quote. The MRL number above is derived from {liquidity ? fmtNum(liquidity.meta.runs) : "1,000"} Monte Carlo runs over claim timing only — heavy-tail event variance, chronic clustering, complication lags, and aggregate stop-loss specified in OffPlan's Liquidity & Capital Modeling Specification v1.2 (Modules 6, 7, 9, 10, 11) are not yet modeled. Treat MRL as a <strong>lower bound</strong> suitable for directional CFO conversations, not for MGU underwriting submissions. Stop-loss premiums, attachment points, and indemnity benefits are illustrative and must be confirmed with underwriting partners. The "Risk Margin" multiplier is the deprecated v3.0/v3.1 deterministic funding placeholder, retained for scenario sizing only.
+          This report combines the deterministic classification layer with the v1 stochastic liquidity layer. It is not an insurance quote. The MRL number above is derived from {liquidity ? fmtNum(liquidity.meta.runs) : "1,000"} Monte Carlo runs combining timing variance over deterministic claims with a Pareto-distributed catastrophic event overlay. Chronic clustering, complication lags, NegBin frequency for over-dispersed tiers, and aggregate stop-loss specified in OffPlan's Liquidity & Capital Modeling Specification v1.2 are still deferred. Treat MRL as a directional CFO conversation tool, not as an MGU underwriting submission. Stop-loss premiums, attachment points, and indemnity benefits are illustrative and must be confirmed with underwriting partners. The "Risk Margin" multiplier is the deprecated v3.0/v3.1 deterministic funding placeholder, retained for scenario sizing only.
         </div>
 
         <div className="border-t border-stone-200 pt-4 mt-4">

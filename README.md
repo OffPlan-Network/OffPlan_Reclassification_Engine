@@ -371,9 +371,12 @@ Every ingested claim is stamped with the IDs of the currently active versions, s
 
 ---
 
-## 11. Stochastic liquidity layer — MVP scope
+## 11. Stochastic liquidity layer — v1 scope
 
-A timing-resample Monte Carlo ships in `src/engine/stochastic.js`. It produces an MRL number that the dashboard and report surface as **a lower bound on required capital**, sufficient for directional CFO conversations. Production-grade MGU underwriting input requires the deferred items below.
+The Monte Carlo in `src/engine/stochastic.js` ships two stochastic dimensions:
+
+1. **Timing variance.** Each modeled claim from the deterministic cascade is placed on a uniform-random month; stop-loss reimbursement arrives 3 months after the event. Across 1,000 runs we get the distribution of worst-month drawdown.
+2. **Catastrophic event tail overlay.** Each run draws `N ~ Poisson(λ × covered_lives)` extra catastrophic events (default λ=0.005 per member-year) with Pareto-distributed cost (default scale=$50K, shape=1.5 → mean $150K, P95 $369K, P99 $1.08M). Each event is split at the scenario's stop-loss attachment point — residual portion stays with the employer; stop-loss portion is reimbursed lagged.
 
 | Spec metric                       | Status in this build |
 |---                                |---                   |
@@ -385,15 +388,17 @@ A timing-resample Monte Carlo ships in `src/engine/stochastic.js`. It produces a
 | P50 / P75 / P90 / P95 / P99 of max cumulative drawdown | **Computed** — single-pass percentiles, no bootstrap CI yet |
 | Replenishment-aware Net Drawdown | **Computed** — monthly contribution = annual cash flow / 12 |
 | Reimbursement-lag Pre-Reimbursement Outflow | **Computed** — fixed 3-month lag (75-day approximation) |
-| Heavy-tail Pareto for inpatient tiers (T8/T9) | **Not modeled** — MVP resamples existing claim timing only, no event-tail variance |
+| Heavy-tail Pareto for inpatient catastrophic events | **Computed** — overlay only (default λ=0.005/member-yr, scale=$50K, shape=1.5) |
 | Aggregate stop-loss corridor | **Not modeled** |
 | Chronic clustering / complication lag (Spec v1.2 §4.1) | **Not modeled** — `chronic_flag` is set in synthetic data but doesn't drive event clustering |
 | Bootstrap confidence intervals on percentiles | **Not computed** — single-run percentiles only |
-| Negative-Binomial frequency for over-dispersed tiers | **Not modeled** — tier-based event generation deferred entirely |
+| Full 11-tier event catalog with per-tier Poisson/NegBin frequencies | **Not modeled** — overlay covers tail risk only; tiers 1–7 still come from the deterministic resample |
 
-**Why MRL is a lower bound:** the simulator resamples claim *timing* (uniform monthly placement) but holds claim *content* fixed at the deterministic engine's output. A real-world cohort experiencing an unobserved inpatient catastrophic event would push MRL above the P95 we report. The simulator therefore answers "given the claims this employer actually had, how much liquidity did they need to weather that year's worst-month drawdown?" — not "how much liquidity will the population need under all plausible event distributions?". The latter is what the full Liquidity Spec v1.2 build (Modules 6, 7, 9, 10, 11) produces.
+**Where the overlay lands in calibration.** ABC Manufacturing at the Expected preset — MRL ≈ $280K, CER ≈ 5.5×, P99 ≈ $750K. Translating to PEPM-equivalent: MRL/lives/12 ≈ $144 PEPM, which sits between the Spec v1.2 worked example anchor ($115 PEPM) and the deterministic baseline ($85 PEPM residual + ~$130 stop-loss = $215 PEPM annual run-rate). Riverdale and XYZ produce comparable PEPM-equivalents under the same overlay. The overlay's λ is the single calibration knob; lower λ shifts the simulator back toward "this employer's actual claims" and higher λ toward "any plausible employer of this size."
 
-**Bottom line for stakeholders:** this build produces a defensible directional MRL number for run-rate cash management conversations and an ELF / MRL ratio that frames the OffPlan capital-efficiency story. It is **not yet** sufficient to produce the MRL that a stop-loss MGU will bind on. That number requires modeling event-frequency and cost-tail variance per Spec v1.2.
+**What the overlay does NOT model.** Chronic-flagged member event clustering, complication probability + lag, and negative-binomial over-dispersion would each push P95 higher (per Spec v1.2 §4.1 the combined effect is +6–10% in chronic-heavy populations). For populations with above-average chronic prevalence, the current MRL is still a slight under-estimate — but no longer a wholesale "lower bound" the way the v0 timing-only build was.
+
+**Bottom line for stakeholders:** this build produces a directional MRL number anchored to spec-equivalent values (CER 4–7× across the demos, P99 in the right order of magnitude for SMB populations). It supports CFO conversations and prospect demos. It is **not yet** sufficient as an MGU underwriting submission — that requires the full tier catalog, chronic clustering, complication lag, aggregate stop-loss, and bootstrap CIs that the v2 build will add.
 
 ---
 
