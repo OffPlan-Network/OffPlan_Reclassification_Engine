@@ -32,7 +32,7 @@
 // and on a Vercel Function unchanged tomorrow. No imports of localStorage
 // or browser-only globals.
 
-import { CATASTROPHIC_TAIL_DEFAULTS, EVENT_TIER_CATALOG } from '../constants.js';
+import { CATASTROPHIC_TAIL_DEFAULTS, EVENT_TIER_CATALOG, DEFAULT_INDEMNITY_BENEFITS } from '../constants.js';
 
 // Mulberry32 — same PRNG used by scripts/generate-demo-claims.mjs. Cheap,
 // deterministic, good enough for Monte Carlo.
@@ -152,68 +152,155 @@ function sampleTierCost(tier, rng) {
   return sampleLogNormal(tier.cost_mu, tier.cost_sigma, rng);
 }
 
-// Per-event simplified OffPlan transformation. Produces residual_amount +
-// stop_loss_amount per event without running the full O(N log N) member-
-// aggregation cascade on every simulation run. Skips indemnity offset
-// (rare events; modest understatement) and uses per-claim attachment-point
-// math instead of per-member-aggregate. Trade-off documented in §11.
-function transformEvent(allowed, bucket, scenario) {
+// Per-event reduction (DPC / cash-pay / ER). This is the per-claim part
+// of the OffPlan transformation; member-aggregate stop-loss and indemnity
+// caps are applied in subsequent passes. Bucket E events keep their full
+// allowed amount here — stop-loss split happens after member aggregation.
+function reduceEventAllowed(allowed, bucket, scenario) {
   if (bucket === 'A') {
-    // DPC absorbs scenario.dpc_elimination_pct of the allowed amount.
-    return { residual: allowed * (1 - (scenario.dpc_elimination_pct ?? 0.85)), stopLoss: 0 };
+    return allowed * (1 - (scenario.dpc_elimination_pct ?? 0.85));
   }
   if (bucket === 'B') {
-    return { residual: allowed * (scenario.cashpay_discount_factor ?? 0.5), stopLoss: 0 };
+    return allowed * (scenario.cashpay_discount_factor ?? 0.5);
   }
   if (bucket === 'C') {
-    return { residual: allowed * (1 - (scenario.er_reduction_pct ?? 0.25)), stopLoss: 0 };
+    return allowed * (1 - (scenario.er_reduction_pct ?? 0.25));
   }
-  if (bucket === 'E') {
-    // Catastrophic — split at scenario attachment point.
-    const attachment = Number(scenario.attachment_point) || 50000;
-    return {
-      residual: Math.min(allowed, attachment),
-      stopLoss: Math.max(0, allowed - attachment),
-    };
-  }
-  // Bucket D (default residual).
-  return { residual: allowed, stopLoss: 0 };
+  // Buckets D and E: full allowed (E gets stop-loss split later).
+  return allowed;
 }
 
-// Generate one simulation run's worth of events from the catalog and apply
-// the simplified per-event transformation. Returns monthly outflow +
-// reimbursement arrays plus the run's annual residual (for calibration).
-function simulateOnceFromCatalog({ catalog, lives, scenario, lagMonths, rng }) {
-  const monthlyOutflow = new Array(12).fill(0);
-  const monthlyReimbursement = new Array(12).fill(0);
-  let annualResidual = 0;
-  let annualStopLossShift = 0;
-  let totalEvents = 0;
+// Used only for the closed-form contribution-rate estimator. Approximates
+// expected residual using the per-claim attachment split (vs the proper
+// member-aggregate split that runs at simulation time).
+function transformEventForContribution(meanCost, bucket, scenario) {
+  const reduced = reduceEventAllowed(meanCost, bucket, scenario);
+  if (bucket === 'E') {
+    const attachment = Number(scenario.attachment_point) || 50000;
+    return {
+      residual: Math.min(reduced, attachment),
+      stopLoss: Math.max(0, reduced - attachment),
+    };
+  }
+  return { residual: reduced, stopLoss: 0 };
+}
 
+// Map a (bucket, category, modeled_cost) tuple to the indemnity event_type
+// the deterministic engine uses. Mirrors calculate.js:67-71.
+function indemnityEventType(bucket, category, modeledCost) {
+  if (bucket === 'C' && category === 'ER') return 'ER';
+  if (category === 'Inpatient') return 'Hospital Admission';
+  if (category === 'Imaging' && modeledCost > 200) return 'Imaging';
+  if (category === 'Outpatient Surgery') return 'Outpatient Surgery';
+  if (category === 'Procedures' && modeledCost > 1000) return 'Outpatient Surgery';
+  return null;
+}
+
+// Run one simulation through the full three-pass OffPlan cascade. Mirrors
+// the deterministic runCalculation logic in src/engine/calculate.js but
+// inlines for performance (5K runs × ~1K events stays under 1s):
+//
+//   Pass 1: generate events with synthetic member IDs; apply per-event
+//           reductions (DPC / cashpay / ER) to get modeled_cost
+//   Pass 2: indemnity offset, walking events cost-desc with per-member
+//           per-event-type benefit caps from indemnityBenefits
+//   Pass 3: stop-loss split, aggregating per-member first then draining
+//           overage from each member's largest claims
+//   Pass 4: bucket events to monthly outflow / reimbursement arrays
+//
+// Returns { monthlyOutflow, monthlyReimbursement, annualResidual,
+//           annualIndemnityOffset, annualStopLossShift, totalEvents }.
+function simulateOnceFromCatalog({ catalog, lives, scenario, lagMonths, rng, indemnityBenefits }) {
+  // Pass 1: generate events.
+  const events = [];
   for (const tier of catalog) {
     const expected = tier.lambda_per_member_year * lives;
-    // Tier can opt into Negative Binomial via freq_dist='negbin' + freq_k
-    // (dispersion). Defaults to Poisson otherwise.
     const n = tier.freq_dist === 'negbin' && tier.freq_k > 0
       ? sampleNegBin(expected, tier.freq_k, rng)
       : samplePoisson(expected, rng);
-    totalEvents += n;
     for (let i = 0; i < n; i++) {
       const allowed = sampleTierCost(tier, rng);
-      const { residual, stopLoss } = transformEvent(allowed, tier.bucket, scenario);
+      const memberId = Math.floor(rng() * lives); // synthetic; collisions are intentional (multi-claim members)
       const month = Math.floor(rng() * 12);
-      const cashOut = residual + stopLoss;
-      monthlyOutflow[month] += cashOut;
-      annualResidual += residual;
-      annualStopLossShift += stopLoss;
-      if (stopLoss > 0) {
-        const reimbMonth = Math.min(11, month + lagMonths);
-        monthlyReimbursement[reimbMonth] += stopLoss;
-      }
+      const modeledCost = reduceEventAllowed(allowed, tier.bucket, scenario);
+      events.push({
+        memberId,
+        month,
+        bucket: tier.bucket,
+        category: tier.normalized_category,
+        allowed,
+        modeledCost,
+        indemnityOffset: 0,
+        stopLossAmount: 0,
+      });
+    }
+  }
+  const totalEvents = events.length;
+
+  // Pass 2: indemnity offset.
+  let annualIndemnityOffset = 0;
+  if (scenario.indemnity_enabled && indemnityBenefits) {
+    // Walk in modeled-cost-descending order so the largest events claim
+    // benefits first (matches the deterministic engine's behavior).
+    const sorted = events.slice().sort((a, b) => b.modeledCost - a.modeledCost);
+    const memberUsage = new Map(); // key: `${memberId}|${eventType}` → count
+    for (const e of sorted) {
+      const eventType = indemnityEventType(e.bucket, e.category, e.modeledCost);
+      if (!eventType) continue;
+      const benefit = indemnityBenefits[eventType];
+      if (!benefit || !benefit.maxPerYear) continue;
+      const key = e.memberId + '|' + eventType;
+      const usage = memberUsage.get(key) || 0;
+      if (usage >= benefit.maxPerYear) continue;
+      const offset = Math.min(benefit.benefit, e.modeledCost);
+      e.indemnityOffset = offset;
+      e.modeledCost = Math.max(0, e.modeledCost - offset);
+      annualIndemnityOffset += offset;
+      memberUsage.set(key, usage + 1);
     }
   }
 
-  return { monthlyOutflow, monthlyReimbursement, annualResidual, annualStopLossShift, totalEvents };
+  // Pass 3: member-aggregate stop-loss split.
+  const attachment = Number(scenario.attachment_point) || 50000;
+  let annualStopLossShift = 0;
+  // Group events by member.
+  const memberEvents = new Map();
+  for (const e of events) {
+    if (!memberEvents.has(e.memberId)) memberEvents.set(e.memberId, []);
+    memberEvents.get(e.memberId).push(e);
+  }
+  for (const [_, claims] of memberEvents) {
+    let total = 0;
+    for (const c of claims) total += c.modeledCost;
+    if (total <= attachment) continue;
+    const overage = total - attachment;
+    claims.sort((a, b) => b.modeledCost - a.modeledCost);
+    let remaining = overage;
+    for (const c of claims) {
+      if (remaining <= 0) break;
+      const take = Math.min(remaining, c.modeledCost);
+      c.stopLossAmount = take;
+      c.modeledCost -= take;
+      remaining -= take;
+      annualStopLossShift += take;
+    }
+  }
+
+  // Pass 4: monthly aggregation.
+  const monthlyOutflow = new Array(12).fill(0);
+  const monthlyReimbursement = new Array(12).fill(0);
+  let annualResidual = 0;
+  for (const e of events) {
+    const cashOut = e.modeledCost + e.stopLossAmount;
+    monthlyOutflow[e.month] += cashOut;
+    annualResidual += e.modeledCost;
+    if (e.stopLossAmount > 0) {
+      const reimbMonth = Math.min(11, e.month + lagMonths);
+      monthlyReimbursement[reimbMonth] += e.stopLossAmount;
+    }
+  }
+
+  return { monthlyOutflow, monthlyReimbursement, annualResidual, annualIndemnityOffset, annualStopLossShift, totalEvents };
 }
 
 function simulateOnce(claims, monthlyContribution, lagMonths, rng, tailOverlay) {
@@ -472,17 +559,22 @@ function simulateLiquidityTierGenerated({ employer, scenario, modeledClaims, opt
 
   // Pre-compute expected annual cash flow to set the monthly contribution.
   // Mean per-event cash equivalent: depends on bucket, scenario, and tier
-  // distribution mean. We use closed-form means where available and skip
-  // sampling for the contribution — this stabilizes the contribution rate
-  // across runs (the employer's plan is fixed; only realized outflow varies).
+  // distribution mean. We use closed-form means and the simplified per-event
+  // attachment split for the contribution rate. The simulator itself uses
+  // member-aggregate stop-loss; this estimator over-counts stop-loss
+  // recovery slightly and hence understates contribution by a small amount,
+  // but the contribution rate is just a setpoint — drift between estimated
+  // and realized contribution is absorbed by the cumulative drawdown.
   let expectedAnnualCashFlow = 0;
   for (const tier of catalog) {
     const expectedEvents = tier.lambda_per_member_year * lives;
     const meanCost = tier.mean_cost ?? estimateTierMean(tier);
-    const { residual, stopLoss } = transformEvent(meanCost, tier.bucket, scenario);
+    const { residual, stopLoss } = transformEventForContribution(meanCost, tier.bucket, scenario);
     expectedAnnualCashFlow += expectedEvents * (residual + stopLoss);
   }
   const monthlyContribution = expectedAnnualCashFlow / 12;
+
+  const indemnityBenefits = options.indemnityBenefits || DEFAULT_INDEMNITY_BENEFITS;
 
   const mrls = new Float64Array(runs);
   const annualResiduals = new Float64Array(runs);
@@ -491,7 +583,7 @@ function simulateLiquidityTierGenerated({ employer, scenario, modeledClaims, opt
   let totalEvents = 0;
 
   for (let i = 0; i < runs; i++) {
-    const r = simulateOnceFromCatalog({ catalog, lives, scenario, lagMonths, rng });
+    const r = simulateOnceFromCatalog({ catalog, lives, scenario, lagMonths, rng, indemnityBenefits });
     annualResiduals[i] = r.annualResidual;
     totalEvents += r.totalEvents;
     for (let t = 0; t < 12; t++) {
