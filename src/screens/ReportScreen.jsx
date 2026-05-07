@@ -11,7 +11,7 @@ import {
   MEDWATCH_PEPM,
   ACCIDENT_INDEMNITY_PEPM,
 } from '../constants.js';
-import { simulateLiquidity } from '../engine/stochastic.js';
+import { useLiquidity } from '../hooks/useLiquidity.js';
 
 export function ReportScreen({ employer, scenario, result, classifiedClaims, inputModeRecord,
                                 activePricingVersion, activeRuleVersion, activeIndemnityVersion, activeBenchmarkVersion }) {
@@ -37,14 +37,14 @@ export function ReportScreen({ employer, scenario, result, classifiedClaims, inp
   const annualSavings = hasValidBaseline ? savingsBaseline - totalOffPlanAnnual : null;
   const savingsPct = hasValidBaseline && savingsBaseline > 0 ? annualSavings / savingsBaseline : null;
 
-  const liquidity = result?.claims?.length
-    ? simulateLiquidity({
-        employer,
-        scenario,
-        modeledClaims: result.claims,
-        options: { runs: 1000 },
-      })
-    : null;
+  // Same hook as the Dashboard so both screens share the cached server-side
+  // simulation when on the API backend, and the inline 1K-run computation
+  // when on localStorage.
+  const { liquidity, loading: liquidityLoading } = useLiquidity({
+    employer,
+    scenario,
+    modeledClaims: result?.claims,
+  });
 
   const print = () => window.print();
 

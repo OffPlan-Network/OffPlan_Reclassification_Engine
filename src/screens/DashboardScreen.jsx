@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { AlertTriangle, DollarSign, TrendingDown, Zap, Activity, Shield, Target, Users, Droplets } from 'lucide-react';
+import { AlertTriangle, DollarSign, TrendingDown, Zap, Activity, Shield, Target, Users, Droplets, Loader2 } from 'lucide-react';
 import { fmtUSD, fmtNum, fmtPct } from '../ui/formatters.js';
 import { EmptyState } from '../ui/EmptyState.jsx';
 import { InputModeBadge, ProvenanceFooter } from '../ui/Provenance.jsx';
@@ -17,7 +17,7 @@ import {
   DEFAULT_REPRICE_FACTORS,
 } from '../constants.js';
 import { runCalculation } from '../engine/calculate.js';
-import { simulateLiquidity } from '../engine/stochastic.js';
+import { useLiquidity } from '../hooks/useLiquidity.js';
 
 export function DashboardScreen({ employer, scenario, result, classifiedClaims, onScenarioChange,
                                    inputModeRecord, activePricingVersion, activeRuleVersion,
@@ -65,19 +65,14 @@ export function DashboardScreen({ employer, scenario, result, classifiedClaims, 
   const annualSavings = hasValidBaseline ? savingsBaseline - totalOffPlanAnnual : null;
   const savingsPct = hasValidBaseline && savingsBaseline > 0 ? annualSavings / savingsBaseline : null;
 
-  // Stochastic liquidity layer (Liquidity Spec v1.2 §3 — MVP scope: timing
-  // resampling only; event-tail variance deferred). Runs are deterministic
-  // for a given (employer, scenario, claims) tuple, so this useMemo is
-  // safe to re-trigger on prop changes without thrashing.
-  const liquidity = useMemo(() => {
-    if (!result?.claims?.length) return null;
-    return simulateLiquidity({
-      employer,
-      scenario,
-      modeledClaims: result.claims,
-      options: { runs: 1000 },
-    });
-  }, [employer?.id, scenario, result?.claims]);
+  // Stochastic liquidity layer (Liquidity Spec v1.2 §3). The hook routes to
+  // POST /api/liquidity/simulate when VITE_STORAGE_BACKEND=api (5K runs,
+  // server-side, Postgres-cached) and falls back to inline computation
+  // (1K runs, main thread) when running on the localStorage backend. The
+  // returned tuple includes loading/error/source so the UI can disclose
+  // where the number came from.
+  const { liquidity, loading: liquidityLoading, error: liquidityError, source: liquiditySource } =
+    useLiquidity({ employer, scenario, modeledClaims: result?.claims });
 
   return (
     <div>
@@ -125,15 +120,34 @@ export function DashboardScreen({ employer, scenario, result, classifiedClaims, 
           </div>
         </div>
         <div data-testid="mrl-card">
-          <div className="text-[10px] uppercase tracking-wider text-stone-400 mb-2">
-            Min Required Liquidity <span className="text-emerald-300 font-normal">· P95 · resample + tail overlay</span>
+          <div className="text-[10px] uppercase tracking-wider text-stone-400 mb-2 flex items-center gap-1.5">
+            <span>Min Required Liquidity</span>
+            <span className="text-emerald-300 font-normal">· P95 · resample + tail overlay</span>
+            {liquiditySource === 'api' && liquidity?.cached && (
+              <span className="text-stone-400 font-normal" title="Result served from server cache">· cached</span>
+            )}
           </div>
-          <div className="font-display text-5xl mb-1 num">
-            {liquidity ? fmtUSD(liquidity.mrl) : "—"}
+          <div className="font-display text-5xl mb-1 num flex items-center gap-2">
+            {liquidityLoading ? (
+              <>
+                <Loader2 size={24} className="animate-spin text-stone-400" />
+                <span className="text-stone-500 text-2xl font-normal">computing…</span>
+              </>
+            ) : liquidityError ? (
+              <span className="text-rose-300 text-2xl">error</span>
+            ) : liquidity ? (
+              fmtUSD(liquidity.mrl)
+            ) : (
+              "—"
+            )}
           </div>
           <div className="text-sm text-stone-300">
-            {liquidity && liquidity.cer
-              ? `${liquidity.cer.toFixed(1)}× capital efficiency vs ELF`
+            {liquidityError
+              ? `Simulation failed: ${liquidityError.message || liquidityError}`
+              : liquidityLoading
+              ? `Running ${liquiditySource === 'api' ? '5,000-run server-side' : '1,000-run client-side'} Monte Carlo…`
+              : liquidity && liquidity.cer
+              ? `${liquidity.cer.toFixed(1)}× capital efficiency vs ELF · ${liquiditySource === 'api' ? 'server-side' : 'client-side'} (${fmtNum(liquidity.meta?.runs || 0)} runs)`
               : "Run a scenario with claims to compute"}
           </div>
         </div>

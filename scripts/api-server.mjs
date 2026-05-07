@@ -16,6 +16,7 @@ import { URL } from 'node:url';
 
 import storageIndexHandler from '../api/storage/index.js';
 import storageKeyHandler from '../api/storage/[key].js';
+import liquiditySimulateHandler from '../api/liquidity/simulate.js';
 
 const PORT = Number(process.env.API_PORT) || 4000;
 
@@ -52,6 +53,9 @@ function route(pathname) {
   if (pathname.startsWith('/api/storage/')) {
     const key = decodeURIComponent(pathname.slice('/api/storage/'.length));
     return { handler: storageKeyHandler, params: { key } };
+  }
+  if (pathname === '/api/liquidity/simulate') {
+    return { handler: liquiditySimulateHandler, params: {} };
   }
   return null;
 }

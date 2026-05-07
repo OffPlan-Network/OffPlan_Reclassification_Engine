@@ -85,10 +85,12 @@ test('4. Stochastic MRL renders on dashboard with positive USD value and CER', a
   await loadAbcDemo(page);
 
   // The MRL card is in the dark hero and tagged with data-testid="mrl-card".
-  // The simulation runs synchronously in useMemo, so the value should be
-  // present on first render of the dashboard.
+  // On the API backend it's fetched async; on the localStorage backend it
+  // computes synchronously in the hook. Either way, wait for the
+  // "computing…" placeholder to clear before reading the value.
   const mrlCard = page.getByTestId('mrl-card');
   await expect(mrlCard).toBeVisible();
+  await expect(mrlCard).not.toContainText('computing', { timeout: 15_000 });
 
   // Read the headline MRL value (the only .num element directly inside the card).
   const mrlText = (await mrlCard.locator('.num').first().innerText()).trim();
@@ -107,6 +109,58 @@ test('4. Stochastic MRL renders on dashboard with positive USD value and CER', a
   await expect(profile).toBeVisible();
   await expect(profile.getByText('P95 · MRL', { exact: false })).toBeVisible();
   await expect(profile.getByText(/^P50\b/)).toBeVisible();
+});
+
+test('6. /api/liquidity/simulate computes MRL server-side and caches by hash', async ({ request }) => {
+  // Seed an employer + claims directly into Postgres so the API has data
+  // to operate on. Reuses ABC's classifier output shape.
+  const employer = { id: 'TEST_LIQ_API', name: 'Liquidity API Test', covered_lives: 100, current_total_healthcare_spend: 1000000 };
+  const scenario = { name: 'Expected', dpc_elimination_pct: 0.85, urgent_care_reduction_pct: 0.65, er_reduction_pct: 0.25, cashpay_discount_factor: 0.5, indemnity_enabled: true, attachment_point: 50000, stop_loss_pepm: 100, risk_margin: 1.25 };
+  const claims = Array.from({ length: 200 }, (_, i) => ({
+    claim_id: `T${i}`,
+    member_id: `M${(i % 50)}`,
+    cpt_code: '99213',
+    place_of_service: 'Office',
+    allowed_amount: 200 + (i % 10) * 50,
+    bucket: i % 5 === 0 ? 'B' : 'A',
+    normalized_category: i % 5 === 0 ? 'Specialist Consult' : 'Primary Care',
+  }));
+  await request.put('/api/storage/' + encodeURIComponent('employer:TEST_LIQ_API'), { data: { value: employer } });
+  await request.put('/api/storage/' + encodeURIComponent('claims:TEST_LIQ_API'), { data: { value: claims } });
+
+  // Cold call — should compute, return cached:false.
+  const t0 = Date.now();
+  const res1 = await request.post('/api/liquidity/simulate', {
+    data: { employerId: 'TEST_LIQ_API', scenario, runs: 2000 },
+  });
+  const elapsed1 = Date.now() - t0;
+  expect(res1.ok()).toBeTruthy();
+  const r1 = await res1.json();
+  expect(r1.cached).toBe(false);
+  expect(r1.mrl, `MRL "${r1.mrl}" should be a positive number`).toBeGreaterThan(0);
+  expect(r1.percentiles).toMatchObject({ p50: expect.any(Number), p95: expect.any(Number) });
+  expect(r1.timings_ms).toMatchObject({ cascade: expect.any(Number), simulation: expect.any(Number) });
+  expect(r1.meta.method).toMatch(/timing-resample/);
+
+  // Warm call with identical inputs — must come back cached.
+  const res2 = await request.post('/api/liquidity/simulate', {
+    data: { employerId: 'TEST_LIQ_API', scenario, runs: 2000 },
+  });
+  const r2 = await res2.json();
+  expect(r2.cached).toBe(true);
+  expect(r2.mrl).toBe(r1.mrl); // determinism — same seed produces same MRL
+
+  // Different scenario → different cache key → fresh compute.
+  const res3 = await request.post('/api/liquidity/simulate', {
+    data: { employerId: 'TEST_LIQ_API', scenario: { ...scenario, stop_loss_pepm: 130 }, runs: 2000 },
+  });
+  const r3 = await res3.json();
+  expect(r3.cached).toBe(false);
+  expect(r3.cache_key).not.toBe(r1.cache_key);
+
+  // Cleanup
+  await request.delete('/api/storage/' + encodeURIComponent('employer:TEST_LIQ_API'));
+  await request.delete('/api/storage/' + encodeURIComponent('claims:TEST_LIQ_API'));
 });
 
 test('5. /migrate.html migrates localStorage data into Postgres', async ({ page, request }) => {
