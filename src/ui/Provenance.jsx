@@ -1,3 +1,5 @@
+import { useState } from 'react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import { INPUT_MODES } from '../constants.js';
 
 export function InputModeBadge({ inputModeRecord, inline = false }) {
@@ -44,17 +46,33 @@ export function ProvenanceFooter({ inputModeRecord, pricingVersion, ruleVersion,
     );
   }
 
+  return <CollapsibleProvenance lines={lines} />;
+}
+
+function CollapsibleProvenance({ lines }) {
+  const [open, setOpen] = useState(false);
   return (
-    <div className="border-t border-stone-200 pt-4 mt-6">
-      <div className="text-[10px] uppercase tracking-[0.18em] text-stone-500 font-semibold mb-2">Provenance</div>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-2 text-[11px]">
-        {lines.map((l, i) => (
-          <div key={i}>
-            <div className="text-stone-500 uppercase tracking-wider">{l.label}</div>
-            <div className="text-stone-800 font-mono">{l.value}</div>
-          </div>
-        ))}
-      </div>
+    <div className="border-t border-stone-200 pt-3 mt-6">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.18em] text-stone-500 hover:text-stone-800 font-semibold transition"
+      >
+        {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        Provenance
+        <span className="font-normal normal-case tracking-normal text-stone-400">
+          · {lines.length} fields
+        </span>
+      </button>
+      {open && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-2 text-[11px] mt-3">
+          {lines.map((l, i) => (
+            <div key={i}>
+              <div className="text-stone-500 uppercase tracking-wider">{l.label}</div>
+              <div className="text-stone-800 font-mono">{l.value}</div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

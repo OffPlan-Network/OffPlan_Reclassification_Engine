@@ -45,6 +45,7 @@ export default function App() {
   const [indemnityBenefits, setIndemnityBenefits] = useState(DEFAULT_INDEMNITY_BENEFITS);
   const [repriceFactors, setRepriceFactors] = useState(DEFAULT_REPRICE_FACTORS);
   const [toast, setToast] = useState(null);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
   const [pricingVersions, setPricingVersions]     = useState([INITIAL_PRICING_VERSION]);
   const [ruleVersions, setRuleVersions]           = useState([INITIAL_RULE_VERSION]);
@@ -59,6 +60,35 @@ export default function App() {
   const activeBenchmarkVersion = benchmarkVersions.find((v) => v.status === "active") || INITIAL_BENCHMARK_VERSION;
 
   useEffect(() => { loadEmployers(); loadVersionsAndAudit(); }, []);
+
+  // Global keyboard shortcuts. Numbers map to the same numbered nav steps
+  // shown in the header (1=Data, 2=Classify, 3=Scenario, 4=Dashboard,
+  // 5=Report). H returns to Cases home, A opens Admin. ? toggles the help
+  // overlay; Esc closes it. We skip when an input/textarea/select is
+  // focused so typing into form fields isn't intercepted.
+  useEffect(() => {
+    function onKey(e) {
+      const tag = (e.target?.tagName || '').toUpperCase();
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || e.target?.isContentEditable) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+      const k = e.key;
+      if (k === '?') { setShortcutsOpen((s) => !s); e.preventDefault(); return; }
+      if (k === 'Escape') { if (shortcutsOpen) setShortcutsOpen(false); return; }
+      if (k.toLowerCase() === 'h') { setScreen(SCREENS.CASES); return; }
+
+      // Step keys 1-5 only fire when a case is open.
+      if (!activeEmployerId) return;
+      if (k === '1') setScreen(SCREENS.UPLOAD);
+      else if (k === '2') setScreen(SCREENS.CLASSIFY);
+      else if (k === '3') setScreen(SCREENS.SCENARIO);
+      else if (k === '4') setScreen(SCREENS.DASHBOARD);
+      else if (k === '5') setScreen(SCREENS.REPORT);
+      else if (k.toLowerCase() === 'a') setScreen(SCREENS.ADMIN);
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [activeEmployerId, shortcutsOpen]);
 
   const loadVersionsAndAudit = async () => {
     const pv = await db.get("global:pricing_versions"); if (pv) setPricingVersions(pv);
@@ -452,6 +482,7 @@ export default function App() {
           setClassifiedClaims([]);
           setScreen(SCREENS.CASES);
         }}
+        onShowShortcuts={() => setShortcutsOpen(true)}
       />
 
       <main className="max-w-7xl mx-auto px-6 py-8">
@@ -618,6 +649,63 @@ export default function App() {
       </main>
 
       {toast && <Toast {...toast} />}
+      {shortcutsOpen && (
+        <ShortcutsOverlay onClose={() => setShortcutsOpen(false)} hasActiveCase={!!activeEmployerId} />
+      )}
+    </div>
+  );
+}
+
+function ShortcutsOverlay({ onClose, hasActiveCase }) {
+  const rows = [
+    { key: '?', desc: 'Toggle this shortcut help' },
+    { key: 'Esc', desc: 'Close this help' },
+    { key: 'H', desc: 'Return to Cases home' },
+    ...(hasActiveCase ? [
+      { key: '1', desc: 'Data (upload claims)' },
+      { key: '2', desc: 'Classify' },
+      { key: '3', desc: 'Scenario' },
+      { key: '4', desc: 'Dashboard' },
+      { key: '5', desc: 'Report' },
+      { key: 'A', desc: 'Admin (cash prices, indemnity, rules)' },
+    ] : []),
+  ];
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-stone-900/40 backdrop-blur-sm flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-lg shadow-xl border border-stone-200 max-w-md w-full p-6"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-display text-2xl text-stone-900">Keyboard shortcuts</h2>
+          <button onClick={onClose} className="text-stone-400 hover:text-stone-700 text-sm">Close</button>
+        </div>
+        <table className="w-full text-sm">
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.key} className="border-b border-stone-100 last:border-0">
+                <td className="py-2 pr-6 align-top">
+                  <kbd className="inline-block bg-stone-100 border border-stone-300 rounded px-2 py-0.5 font-mono text-[11px] text-stone-800 shadow-sm">
+                    {r.key}
+                  </kbd>
+                </td>
+                <td className="py-2 text-stone-700">{r.desc}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {!hasActiveCase && (
+          <div className="mt-4 text-xs text-stone-500 leading-relaxed">
+            Open a case from the home screen to enable the numbered nav shortcuts.
+          </div>
+        )}
+        <div className="mt-4 text-[11px] text-stone-400">
+          Shortcuts are disabled while typing in input fields.
+        </div>
+      </div>
     </div>
   );
 }

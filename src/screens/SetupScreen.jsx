@@ -93,7 +93,7 @@ export function SetupScreen({ initial, onSave }) {
             />
           </Field>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Field label="Industry">
               <select
                 value={form.industry}
@@ -124,7 +124,7 @@ export function SetupScreen({ initial, onSave }) {
           title="Population"
           subtitle="Headcount and covered lives drive every per-member calculation downstream."
         >
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Field label="Employees" required>
               <input
                 type="number" value={form.employee_count}
@@ -152,7 +152,7 @@ export function SetupScreen({ initial, onSave }) {
         >
 
           <Field label="Question 1 · Current Funding Model" required>
-            <div className="grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
               {[
                 { v: "fully_insured", l: "Fully Insured", s: "Carrier-billed premium" },
                 { v: "level_funded",  l: "Level Funded",  s: "Premium + claims fund" },
@@ -213,7 +213,7 @@ export function SetupScreen({ initial, onSave }) {
               <div className="text-[10px] uppercase tracking-wider text-stone-500 font-semibold mb-2">
                 Confirm what is included in the figure above
               </div>
-              <div className="grid grid-cols-3 gap-2 text-sm">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm">
                 {[
                   ["includes_stop_loss",  "Stop-loss premium"],
                   ["includes_admin_fees", "TPA / PBM / admin fees"],
@@ -245,7 +245,7 @@ export function SetupScreen({ initial, onSave }) {
             </div>
           )}
 
-          <div className="mt-5 grid grid-cols-2 gap-4">
+          <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Field
               label="Historical Claims Spend (12 mo)"
               required
@@ -284,7 +284,7 @@ export function SetupScreen({ initial, onSave }) {
           title="Claims period"
           subtitle="The 12-month window the historical claims data covers."
         >
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Field label="Period Start">
               <input
                 type="date" value={form.claims_period_start}
@@ -309,7 +309,7 @@ export function SetupScreen({ initial, onSave }) {
           title="Chronic prevalence"
           subtitle="Share of covered members managing at least one chronic condition. Drives event-clustering in the tier-generated stochastic mode. Auto-estimated from claims after the first upload; override here if you have better data (e.g. from carrier high-cost-claimant reports)."
         >
-          <div className="grid grid-cols-2 gap-4 items-end">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-end">
             <Field label="Chronic Prevalence (%)">
               <input
                 type="number"

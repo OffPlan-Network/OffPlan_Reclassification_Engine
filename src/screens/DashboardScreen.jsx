@@ -175,8 +175,8 @@ export function DashboardScreen({ employer, scenario, result, classifiedClaims, 
           )}
         </div>
 
-        <div className="border border-stone-200 rounded overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="border border-stone-200 rounded overflow-hidden overflow-x-auto">
+          <table className="w-full text-sm min-w-[560px]">
             <thead>
               <tr className="border-b border-stone-200 bg-stone-50 text-[10px] uppercase tracking-wider text-stone-500">
                 <th className="text-left px-4 py-2.5 font-medium">Metric</th>
@@ -515,7 +515,8 @@ export function DashboardScreen({ employer, scenario, result, classifiedClaims, 
         <div className="px-5 py-3 border-b border-stone-200 bg-stone-50">
           <h3 className="font-medium text-stone-900">Scenario Comparison</h3>
         </div>
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[640px]">
           <thead>
             <tr className="border-b border-stone-200 text-[10px] uppercase tracking-wider text-stone-500">
               <th className="text-left px-5 py-3">Scenario</th>
@@ -560,6 +561,7 @@ export function DashboardScreen({ employer, scenario, result, classifiedClaims, 
             })}
           </tbody>
         </table>
+        </div>
       </div>
 
       <div className="bg-white border border-stone-200 rounded-lg p-5 mt-6">

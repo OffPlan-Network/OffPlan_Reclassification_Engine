@@ -1,5 +1,5 @@
-import { useMemo } from 'react';
-import { Loader2, Droplets } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Loader2, Droplets, Copy, Upload as UploadIcon, Check, X } from 'lucide-react';
 import { Field } from '../ui/Field.jsx';
 import { fmtUSD, fmtPct, fmtNum } from '../ui/formatters.js';
 import {
@@ -212,7 +212,117 @@ export function ScenarioScreen({ scenario, employer, result, classifiedClaims, o
             onChange={(v) => set("risk_margin", v)}
           />
         </Section>
+
+        {/* ============= Export / Import ============= */}
+        <Section title="Export & Import" subtitle="Copy this scenario as JSON to share with a colleague, or paste a JSON block to apply someone else's tuning.">
+          <ExportImportControls scenario={scenario} onApply={onChange} />
+        </Section>
       </div>
+    </div>
+  );
+}
+
+function ExportImportControls({ scenario, onApply }) {
+  const [copied, setCopied] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importText, setImportText] = useState('');
+  const [importError, setImportError] = useState(null);
+
+  const json = useMemo(() => JSON.stringify(scenario, null, 2), [scenario]);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(json);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      // Fallback: select the textarea content for manual copy
+      const ta = document.createElement('textarea');
+      ta.value = json; document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); setCopied(true); setTimeout(() => setCopied(false), 1800); } catch {}
+      document.body.removeChild(ta);
+    }
+  };
+
+  const apply = () => {
+    setImportError(null);
+    let parsed;
+    try { parsed = JSON.parse(importText); }
+    catch (err) { setImportError(`Invalid JSON: ${err.message}`); return; }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      setImportError('Expected a JSON object with scenario knobs');
+      return;
+    }
+    if (typeof parsed.dpc_elimination_pct !== 'number' || typeof parsed.attachment_point !== 'number') {
+      setImportError('Pasted JSON does not look like a scenario (missing dpc_elimination_pct or attachment_point)');
+      return;
+    }
+    onApply({ ...scenario, ...parsed });
+    setImportOpen(false);
+    setImportText('');
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2 flex-wrap">
+        <button
+          onClick={copy}
+          className="flex items-center gap-2 bg-stone-900 text-white px-4 h-9 rounded text-sm font-medium hover:bg-stone-800"
+        >
+          {copied ? <Check size={14} /> : <Copy size={14} />}
+          {copied ? 'Copied' : 'Copy as JSON'}
+        </button>
+        <button
+          onClick={() => { setImportOpen(true); setImportError(null); }}
+          className="flex items-center gap-2 border border-stone-300 text-stone-700 px-4 h-9 rounded text-sm font-medium hover:bg-stone-50"
+        >
+          <UploadIcon size={14} />
+          Import from JSON
+        </button>
+      </div>
+
+      {/* Read-only preview of current scenario JSON */}
+      <details className="border border-stone-200 rounded">
+        <summary className="px-3 py-2 cursor-pointer text-xs text-stone-600 hover:bg-stone-50 select-none">
+          Preview JSON ({Object.keys(scenario).length} fields)
+        </summary>
+        <pre className="bg-stone-900 text-stone-100 text-[11px] font-mono p-4 overflow-auto rounded-b max-h-60">{json}</pre>
+      </details>
+
+      {importOpen && (
+        <div className="border border-stone-300 rounded-lg bg-stone-50 p-4">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-sm font-medium text-stone-900">Paste scenario JSON</div>
+            <button
+              onClick={() => { setImportOpen(false); setImportText(''); setImportError(null); }}
+              className="text-stone-400 hover:text-stone-700"
+            >
+              <X size={14} />
+            </button>
+          </div>
+          <textarea
+            value={importText}
+            onChange={(e) => setImportText(e.target.value)}
+            placeholder='{"dpc_elimination_pct": 0.85, ... }'
+            rows={8}
+            className="w-full bg-white border border-stone-200 rounded px-3 py-2 font-mono text-xs focus:outline-none focus:border-stone-900"
+            autoFocus
+          />
+          {importError && (
+            <div className="mt-2 text-xs text-rose-700">{importError}</div>
+          )}
+          <div className="mt-3 flex items-center gap-2">
+            <button
+              onClick={apply}
+              disabled={!importText.trim()}
+              className="bg-stone-900 text-white px-4 h-9 rounded text-sm font-medium hover:bg-stone-800 disabled:opacity-30"
+            >
+              Apply scenario
+            </button>
+            <span className="text-[11px] text-stone-500">Pasted fields override the active scenario; unspecified fields keep current values.</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
