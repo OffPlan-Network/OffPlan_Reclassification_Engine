@@ -93,6 +93,7 @@ export const SCENARIO_PRESETS = {
     risk_margin: 1.40,
     aggregate_stop_loss_enabled: true,
     aggregate_attachment_pct: 1.25,
+    dpc_clinical_mitigation_pct: 0.20,
     description: "Pre-experience underwriting. Stop-loss priced at conservative carrier markup over the $100 anchor.",
   },
   expected: {
@@ -107,6 +108,7 @@ export const SCENARIO_PRESETS = {
     risk_margin: 1.25,
     aggregate_stop_loss_enabled: true,
     aggregate_attachment_pct: 1.25,
+    dpc_clinical_mitigation_pct: 0.30,
     description: "Balanced view. Anchored to the $582.20 all-in stack and $200 PMPM claims fund working assumption.",
   },
   aggressive: {
@@ -121,6 +123,7 @@ export const SCENARIO_PRESETS = {
     risk_margin: 1.10,
     aggregate_stop_loss_enabled: true,
     aggregate_attachment_pct: 1.20,
+    dpc_clinical_mitigation_pct: 0.45,
     description: "Post-experience efficiency ceiling. Stop-loss reflects validated population experience.",
   },
 };
@@ -207,6 +210,47 @@ export const EVENT_TIER_CATALOG = [
   // routine vs NICU treatment deferred.
   { tier: 11, label: 'Maternity / delivery',      lambda_per_member_year: 0.010, bucket: 'E', normalized_category: 'Inpatient',         cost_dist: 'lognormal', cost_mu: 9.30,  cost_sigma: 0.8, mean_cost: 15000 },
 ];
+
+// Chronic-clustering parameters for the tier-generated stochastic mode.
+//
+// Spec v1.2 §4.1 names "chronic flag" as a clustering driver: a fraction of
+// the population carries one or more chronic conditions, and those members
+// generate more events at certain tiers (specialist follow-ups, advanced
+// imaging surveillance, ASC interventions, ER flares, inpatient admissions,
+// specialty Rx). At simulation time we draw which member IDs are chronic
+// once per run from CHRONIC_PREVALENCE, then sample per-tier events from a
+// chronic pool (rate λ × effective_uplift) and a non-chronic pool (rate λ)
+// separately. Repeated draws on the smaller chronic pool produce the
+// clustering effect: the same chronic members rack up multiple events.
+//
+// CHRONIC_PREVALENCE = 0.28 — anchored to CDC working-age (18–64) chronic-
+// condition prevalence (~28% with at least one chronic condition managed
+// long-term; the all-adult rate is ~40% but employer populations skew
+// younger). Per-employer mix can vary substantially.
+export const CHRONIC_PREVALENCE = 0.28;
+
+// CHRONIC_TIER_UPLIFT — multiplier on a tier's lambda for chronic members.
+// Tiers omitted here default to 1.0 (no uplift). The DPC clinical mitigation
+// factor (per scenario) shrinks the *additional* uplift toward 1.0:
+//   effective_uplift = 1 + (raw_uplift − 1) × (1 − dpc_clinical_mitigation_pct)
+// So at the Expected scenario (mitigation=0.30), T8's raw 1.7× becomes 1.49×.
+//
+// Anchors: T2/T4/T5 reflect chronic-condition specialist + procedure
+// utilization (musculoskeletal, cardiology, endocrine). T6/T7 reflect
+// uncontrolled flares routing through ER. T8 reflects exacerbation-driven
+// admissions. T10 reflects autoimmune/oncology maintenance regimens that
+// concentrate in chronic-flagged members. T1 (DPC-eliminated), T3 (lab,
+// neutral), T9 (catastrophic, orthogonal), T11 (maternity, orthogonal) are
+// not uplifted.
+export const CHRONIC_TIER_UPLIFT = {
+  2: 1.6,   // Specialty consult
+  4: 1.4,   // Imaging (advanced)
+  5: 1.3,   // ASC outpatient procedure
+  6: 1.4,   // ER (low acuity) — uncontrolled flares
+  7: 1.3,   // ER (high acuity)
+  8: 1.7,   // Inpatient admission — chronic exacerbations
+  10: 2.0,  // Specialty Rx fill — chronic disease maintenance
+};
 
 // Catastrophic-event tail overlay parameters for the stochastic liquidity
 // layer. Each Monte Carlo run draws N ~ Poisson(lambda × covered_lives)

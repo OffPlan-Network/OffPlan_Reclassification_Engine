@@ -102,7 +102,7 @@ export function DashboardScreen({ employer, scenario, result, classifiedClaims, 
           <div>
             <strong>Prototype scope: deterministic classification + stochastic MRL with tail overlay.</strong>
             <div className="mt-1 leading-relaxed">
-              This build produces the residual fund and the OffPlan stack PEPM (deterministic), plus a Monte Carlo Min Required Liquidity in either timing-resample mode (resamples deterministic claims + Pareto catastrophic tail overlay) or tier-generated mode (events generated fresh from the 11-tier catalog with Poisson/NegBin frequency, run through the full member-aggregating cascade with indemnity offset and aggregate stop-loss corridor). We take the P95 of max cumulative drawdown across the run set, with bootstrap 95% confidence intervals on every reported percentile and complication probability + lag for tiers that ship them. Still deferred per Liquidity Spec v1.2: chronic_flag-driven event clustering, the Specialty Rx (T10) monthly-recurrence model, and the bimodal Maternity/NICU (T11) split. The MRL is calibrated to spec-anchored numbers but should still be treated as a directional CFO conversation tool, not as an MGU underwriting submission. The "Risk Margin × Residual" formula in §6.6 of the spec is the deprecated v3.0/v3.1 funding construct retained as an intermediate placeholder.
+              This build produces the residual fund and the OffPlan stack PEPM (deterministic), plus a Monte Carlo Min Required Liquidity in either timing-resample mode (resamples deterministic claims + Pareto catastrophic tail overlay) or tier-generated mode (events generated fresh from the 11-tier catalog with Poisson/NegBin frequency, run through the full member-aggregating cascade with indemnity offset, aggregate stop-loss corridor, complication recursion, and chronic-flag clustering on a pre-sampled chronic member pool). DPC's clinical effect — monthly-membership absorbing chronic management and PCP catching complication early-warnings — is modeled as a single mitigation factor that shrinks both the per-tier complication probability and the chronic uplift. We take the P95 of max cumulative drawdown across the run set, with bootstrap 95% confidence intervals on every reported percentile. Still deferred per Liquidity Spec v1.2: the Specialty Rx (T10) monthly-recurrence model and the bimodal Maternity/NICU (T11) split. The MRL is calibrated to spec-anchored numbers but should still be treated as a directional CFO conversation tool, not as an MGU underwriting submission. The "Risk Margin × Residual" formula in §6.6 of the spec is the deprecated v3.0/v3.1 funding construct retained as an intermediate placeholder.
             </div>
           </div>
         </div>
@@ -305,7 +305,7 @@ export function DashboardScreen({ employer, scenario, result, classifiedClaims, 
                 Drift_pct vs the deterministic residual reflects event-mix differences from the catalog defaults, not transformation gaps.
               </>
             )}
-            {' '}Chronic_flag-driven event clustering, the Specialty Rx (T10) monthly-recurrence model, and the bimodal Maternity/NICU (T11) split are still deferred
+            {' '}The Specialty Rx (T10) monthly-recurrence model and the bimodal Maternity/NICU (T11) split are still deferred
             (see README §11). Use this as a directional CFO conversation anchor, not MGU underwriting input.
             Production replaces this with the full Liquidity Spec v1.2 stochastic layer.
           </div>

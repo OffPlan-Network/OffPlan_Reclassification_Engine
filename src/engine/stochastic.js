@@ -19,9 +19,19 @@
 // aggregate stop-loss corridor (when enabled in scenario), bootstrap 95%
 // CIs on every reported percentile.
 //
-// Still deferred per Liquidity Spec v1.2: chronic_flag-driven event
-// clustering, the monthly-recurrence model for Specialty Rx (T10), and
-// the bimodal Maternity/NICU split (T11). README §11 documents the gap.
+// Tier-generated mode also models chronic clustering: each run pre-samples
+// which member IDs are chronic (Bernoulli with CHRONIC_PREVALENCE), and
+// per-tier events are drawn from a chronic pool at λ × effective_uplift
+// and a non-chronic pool at λ. Repeated draws on the smaller chronic pool
+// concentrate events on the same members. Both chronic uplift and
+// per-tier complication probability are reduced by the scenario's
+// `dpc_clinical_mitigation_pct` to model DPC's clinical effect — the
+// monthly-membership model absorbs chronic management and catches
+// complication early-warnings before they cascade.
+//
+// Still deferred per Liquidity Spec v1.2: the monthly-recurrence model
+// for Specialty Rx (T10) and the bimodal Maternity/NICU split (T11).
+// README §11 documents the gap.
 //
 // Calibration: the timing-resample component matches deterministic residual
 // by construction (we resample the same claims). The tail overlay adds
@@ -34,7 +44,7 @@
 // and on a Vercel Function unchanged tomorrow. No imports of localStorage
 // or browser-only globals.
 
-import { CATASTROPHIC_TAIL_DEFAULTS, EVENT_TIER_CATALOG, DEFAULT_INDEMNITY_BENEFITS } from '../constants.js';
+import { CATASTROPHIC_TAIL_DEFAULTS, EVENT_TIER_CATALOG, DEFAULT_INDEMNITY_BENEFITS, CHRONIC_PREVALENCE, CHRONIC_TIER_UPLIFT } from '../constants.js';
 
 // Mulberry32 — same PRNG used by scripts/generate-demo-claims.mjs. Cheap,
 // deterministic, good enough for Monte Carlo.
@@ -250,11 +260,25 @@ function indemnityEventType(bucket, category, modeledCost) {
 // Returns { monthlyOutflow, monthlyReimbursement, annualResidual,
 //           annualIndemnityOffset, annualStopLossShift, totalEvents }.
 function simulateOnceFromCatalog({ catalog, lives, scenario, lagMonths, rng, indemnityBenefits }) {
+  // DPC clinical mitigation factor. Reduces both per-tier complication
+  // probability and the chronic-clustering uplift toward their unmitigated
+  // base — DPC catches early warnings (lower complication cascades) and
+  // absorbs chronic management into monthly membership (lower flare-driven
+  // event clustering on chronic members).
+  const dpcMitigation = Math.min(1, Math.max(0, Number(scenario.dpc_clinical_mitigation_pct) || 0));
+
+  // Chronic pool. Pre-sample at run start so the same chronic member set is
+  // shared across all tiers within the run. Member IDs 0..chronicCount-1 are
+  // chronic; chronicCount..lives-1 are non-chronic. (No global member registry
+  // is needed — only the index range matters.)
+  const chronicCount = Math.round(lives * CHRONIC_PREVALENCE);
+  const nonchronicCount = lives - chronicCount;
+
   // Pass 1: generate primary events plus complications. Complications occur
-  // with probability tier.complication_probability, on the same member, of
-  // the same tier, lag_days later (log-normal). Cap depth at 3 so a chain
-  // of complications can't run away — beyond that, prevalence falls off
-  // sharply per published utilization data anyway.
+  // with probability tier.complication_probability × (1 − dpcMitigation),
+  // on the same member, of the same tier, lag_days later (log-normal). Cap
+  // depth at 3 so a chain of complications can't run away — beyond that,
+  // prevalence falls off sharply per published utilization data anyway.
   const events = [];
   let totalComplications = 0;
   const MAX_DEPTH = 3;
@@ -275,8 +299,9 @@ function simulateOnceFromCatalog({ catalog, lives, scenario, lagMonths, rng, ind
     });
 
     // Roll for a complication, if this tier has one configured and we
-    // haven't exceeded recursion depth.
-    const cp = Number(tier.complication_probability) || 0;
+    // haven't exceeded recursion depth. DPC mitigation shrinks the rate.
+    const baseCp = Number(tier.complication_probability) || 0;
+    const cp = baseCp * (1 - dpcMitigation);
     if (cp > 0 && depth < MAX_DEPTH && rng() < cp) {
       const median = Number(tier.complication_lag_days_median) || 21;
       const sigma = Number(tier.complication_lag_days_sigma) || 0.5;
@@ -288,14 +313,41 @@ function simulateOnceFromCatalog({ catalog, lives, scenario, lagMonths, rng, ind
     }
   }
 
+  let chronicEventCount = 0;
   for (const tier of catalog) {
-    const expected = tier.lambda_per_member_year * lives;
-    const n = tier.freq_dist === 'negbin' && tier.freq_k > 0
-      ? sampleNegBin(expected, tier.freq_k, rng)
-      : samplePoisson(expected, rng);
-    for (let i = 0; i < n; i++) {
-      const memberId = Math.floor(rng() * lives);
-      generateOne(tier, memberId, null, 0);
+    const baseLambda = Number(tier.lambda_per_member_year) || 0;
+    const rawUplift = Number(CHRONIC_TIER_UPLIFT[tier.tier]) || 1;
+    const effectiveUplift = 1 + (rawUplift - 1) * (1 - dpcMitigation);
+
+    // Chronic pool: λ × effectiveUplift × chronicCount. Drawing from a
+    // smaller pool with a higher rate is what produces clustering: the
+    // same chronic memberId is more likely to come up multiple times.
+    if (chronicCount > 0) {
+      const expected = baseLambda * effectiveUplift * chronicCount;
+      if (expected > 0) {
+        const n = tier.freq_dist === 'negbin' && tier.freq_k > 0
+          ? sampleNegBin(expected, tier.freq_k, rng)
+          : samplePoisson(expected, rng);
+        for (let i = 0; i < n; i++) {
+          const memberId = Math.floor(rng() * chronicCount);
+          generateOne(tier, memberId, null, 0);
+          chronicEventCount++;
+        }
+      }
+    }
+
+    // Non-chronic pool: base λ × nonchronicCount.
+    if (nonchronicCount > 0) {
+      const expected = baseLambda * nonchronicCount;
+      if (expected > 0) {
+        const n = tier.freq_dist === 'negbin' && tier.freq_k > 0
+          ? sampleNegBin(expected, tier.freq_k, rng)
+          : samplePoisson(expected, rng);
+        for (let i = 0; i < n; i++) {
+          const memberId = chronicCount + Math.floor(rng() * nonchronicCount);
+          generateOne(tier, memberId, null, 0);
+        }
+      }
     }
   }
   const totalEvents = events.length;
@@ -363,7 +415,7 @@ function simulateOnceFromCatalog({ catalog, lives, scenario, lagMonths, rng, ind
     }
   }
 
-  return { monthlyOutflow, monthlyReimbursement, annualResidual, annualIndemnityOffset, annualStopLossShift, totalEvents, totalComplications };
+  return { monthlyOutflow, monthlyReimbursement, annualResidual, annualIndemnityOffset, annualStopLossShift, totalEvents, totalComplications, chronicEventCount };
 }
 
 // Apply aggregate stop-loss corridor in-place: if annual residual exceeds
@@ -697,9 +749,27 @@ function simulateLiquidityTierGenerated({ employer, scenario, modeledClaims, opt
   // recovery slightly and hence understates contribution by a small amount,
   // but the contribution rate is just a setpoint — drift between estimated
   // and realized contribution is absorbed by the cumulative drawdown.
+  //
+  // The closed-form must mirror the simulator's chronic-pool split and
+  // complication recursion or the contribution-rate setpoint will be
+  // chronically too low, inflating MRL.
+  const dpcMitigation = Math.min(1, Math.max(0, Number(scenario?.dpc_clinical_mitigation_pct) || 0));
+  const chronicCount = Math.round(lives * CHRONIC_PREVALENCE);
+  const nonchronicCount = lives - chronicCount;
+  const tierMultipliers = catalog.map((tier) => {
+    const rawUplift = Number(CHRONIC_TIER_UPLIFT[tier.tier]) || 1;
+    const effectiveUplift = 1 + (rawUplift - 1) * (1 - dpcMitigation);
+    const primaryEvents =
+      Number(tier.lambda_per_member_year) * (effectiveUplift * chronicCount + nonchronicCount);
+    // Complication recursion (depth-capped at 3): a primary event spawns
+    // expected (1 + p + p² + p³) total events including itself.
+    const p = (Number(tier.complication_probability) || 0) * (1 - dpcMitigation);
+    const chainFactor = 1 + p + p * p + p * p * p;
+    return { tier, primaryEvents, expectedEvents: primaryEvents * chainFactor, effectiveUplift };
+  });
+
   let expectedAnnualCashFlow = 0;
-  for (const tier of catalog) {
-    const expectedEvents = tier.lambda_per_member_year * lives;
+  for (const { tier, expectedEvents } of tierMultipliers) {
     const meanCost = tier.mean_cost ?? estimateTierMean(tier);
     const { residual, stopLoss } = transformEventForContribution(meanCost, tier.bucket, scenario);
     expectedAnnualCashFlow += expectedEvents * (residual + stopLoss);
@@ -711,8 +781,7 @@ function simulateLiquidityTierGenerated({ employer, scenario, modeledClaims, opt
   // Pre-compute expected residual for the aggregate corridor. Closed-form
   // sum of (expected events × per-event residual portion).
   let expectedAnnualResidual = 0;
-  for (const tier of catalog) {
-    const expectedEvents = tier.lambda_per_member_year * lives;
+  for (const { tier, expectedEvents } of tierMultipliers) {
     const meanCost = tier.mean_cost ?? estimateTierMean(tier);
     const { residual } = transformEventForContribution(meanCost, tier.bucket, scenario);
     expectedAnnualResidual += expectedEvents * residual;
@@ -724,6 +793,7 @@ function simulateLiquidityTierGenerated({ employer, scenario, modeledClaims, opt
   let monthlyOutflowCount = 0;
   let totalEvents = 0;
   let totalComplications = 0;
+  let totalChronicEvents = 0;
   let totalAggregateRecovery = 0;
   let runsTriggeringAggregate = 0;
 
@@ -732,6 +802,7 @@ function simulateLiquidityTierGenerated({ employer, scenario, modeledClaims, opt
     annualResiduals[i] = r.annualResidual;
     totalEvents += r.totalEvents;
     totalComplications += r.totalComplications;
+    totalChronicEvents += r.chronicEventCount;
     for (let t = 0; t < 12; t++) {
       monthlyOutflowSum += r.monthlyOutflow[t];
       monthlyOutflowCount++;
@@ -809,6 +880,23 @@ function simulateLiquidityTierGenerated({ employer, scenario, modeledClaims, opt
       mean_complications_per_run: totalComplications / runs,
       complications_share_of_events: totalEvents > 0 ? totalComplications / totalEvents : 0,
     },
+    chronic_clustering: {
+      enabled: chronicCount > 0,
+      prevalence: CHRONIC_PREVALENCE,
+      chronic_lives: chronicCount,
+      nonchronic_lives: nonchronicCount,
+      dpc_clinical_mitigation_pct: dpcMitigation,
+      mean_chronic_events_per_run: runs > 0 ? totalChronicEvents / runs : 0,
+      chronic_share_of_events: totalEvents > 0 ? totalChronicEvents / totalEvents : 0,
+      tier_uplifts: tierMultipliers
+        .filter(({ effectiveUplift }) => effectiveUplift > 1.0001)
+        .map(({ tier, effectiveUplift }) => ({
+          tier: tier.tier,
+          label: tier.label,
+          raw_uplift: Number(CHRONIC_TIER_UPLIFT[tier.tier]) || 1,
+          effective_uplift: effectiveUplift,
+        })),
+    },
     aggregate_stop_loss: scenario?.aggregate_stop_loss_enabled
       ? {
           enabled: true,
@@ -826,7 +914,7 @@ function simulateLiquidityTierGenerated({ employer, scenario, modeledClaims, opt
       horizon_months: 12,
       lag_months: lagMonths,
       seed,
-      method: 'tier-generated-v2',
+      method: 'tier-generated-v3',
       catalog_length: catalog.length,
       generated_at: new Date().toISOString(),
     },
