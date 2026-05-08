@@ -280,6 +280,23 @@ export const CATASTROPHIC_TAIL_DEFAULTS = {
   pareto_shape: 1.5,
 };
 
+// Payment schedule for stop-loss-eligible claims. Real-world hospital
+// billing for catastrophic admissions has adjudication delays (claims
+// review, coding audits, network reprice) plus invoice terms (typically
+// net-30 / net-60), so the employer's cash outflow on a $200K admission
+// does not hit fully in the month of service. Default: 1/3 in the
+// month of service, 1/3 the next month, 1/3 the third month.
+//
+// Applied only to claims/events with stop_loss_amount > 0 (the threshold
+// signal that a claim is large enough to go through traditional hospital
+// adjudication). Smaller claims paid via the cash-pay network settle
+// same-month. The stop-loss carrier reimbursement schedule is unchanged
+// — still arrives at month + lagMonths from the original claim incident.
+//
+// Override per-call via simulateLiquidity({ options: { stopLossPaymentSchedule: [1] } }) to disable
+// the spread (single-month outflow), useful for sensitivity testing.
+export const STOP_LOSS_PAYMENT_SCHEDULE = [1 / 3, 1 / 3, 1 / 3];
+
 export const INPUT_MODES = {
   FULL:    { id: "full",    label: "Full Claims",     confidence: "high",   description: "Member-level CPT-line claims" },
   PARTIAL: { id: "partial", label: "Partial Summary", confidence: "medium", description: "Category-level totals" },

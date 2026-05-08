@@ -102,7 +102,7 @@ export function DashboardScreen({ employer, scenario, result, classifiedClaims, 
           <div>
             <strong>Prototype scope: deterministic classification + stochastic MRL with tail overlay.</strong>
             <div className="mt-1 leading-relaxed">
-              This build produces the residual fund and the OffPlan stack PEPM (deterministic), plus a Monte Carlo Min Required Liquidity in either timing-resample mode (resamples deterministic claims + Pareto catastrophic tail overlay) or tier-generated mode (events generated fresh from the 11-tier catalog with Poisson/NegBin frequency, run through the full member-aggregating cascade with indemnity offset, aggregate stop-loss corridor, complication recursion, and chronic-flag clustering on a pre-sampled chronic member pool). DPC's clinical effect — monthly-membership absorbing chronic management and PCP catching complication early-warnings — is modeled as a single mitigation factor that shrinks both the per-tier complication probability and the chronic uplift. We take the P95 of max cumulative drawdown across the run set, with bootstrap 95% confidence intervals on every reported percentile. Still deferred per Liquidity Spec v1.2: the Specialty Rx (T10) monthly-recurrence model and the bimodal Maternity/NICU (T11) split. The MRL is calibrated to spec-anchored numbers but should still be treated as a directional CFO conversation tool, not as an MGU underwriting submission. The "Risk Margin × Residual" formula in §6.6 of the spec is the deprecated v3.0/v3.1 funding construct retained as an intermediate placeholder.
+              This build produces the residual fund and the OffPlan stack PEPM (deterministic), plus a Monte Carlo Min Required Liquidity in either timing-resample mode (resamples deterministic claims + Pareto catastrophic tail overlay) or tier-generated mode (events generated fresh from the 11-tier catalog with Poisson/NegBin frequency, run through the full member-aggregating cascade with indemnity offset, aggregate stop-loss corridor, complication recursion, and chronic-flag clustering on a pre-sampled chronic member pool). DPC's clinical effect — monthly-membership absorbing chronic management and PCP catching complication early-warnings — is modeled as a single mitigation factor that shrinks both the per-tier complication probability and the chronic uplift. Stop-loss-eligible (catastrophic) claims spread their cash outflow 1/3 / 1/3 / 1/3 across three months to model adjudication delay + invoice terms; smaller cash-pay claims settle same-month. We take the P95 of max cumulative drawdown across the run set, with bootstrap 95% confidence intervals on every reported percentile. Still deferred per Liquidity Spec v1.2: the Specialty Rx (T10) monthly-recurrence model and the bimodal Maternity/NICU (T11) split. The MRL is calibrated to spec-anchored numbers but should still be treated as a directional CFO conversation tool, not as an MGU underwriting submission. The "Risk Margin × Residual" formula in §6.6 of the spec is the deprecated v3.0/v3.1 funding construct retained as an intermediate placeholder.
             </div>
           </div>
         </div>
@@ -440,6 +440,12 @@ export function DashboardScreen({ employer, scenario, result, classifiedClaims, 
                 Generates events fresh per run from {liquidity.meta.catalog_length}-tier catalog (Poisson/NegBin frequency × log-normal/Pareto cost),
                 run through the full member-aggregating cascade (indemnity offset → member-aggregate stop-loss split → aggregate corridor).
                 Drift_pct vs the deterministic residual reflects event-mix differences from the catalog defaults, not transformation gaps.
+              </>
+            )}
+            {liquidity.payment_schedule?.enabled && (
+              <>
+                {' '}Stop-loss-eligible claims spread {liquidity.payment_schedule.schedule.map((x, i) => `${(x * 100).toFixed(0)}%`).join(' / ')} across {liquidity.payment_schedule.months} months
+                (adjudication delay + invoice terms); smaller claims settle same-month.
               </>
             )}
             {' '}The Specialty Rx (T10) monthly-recurrence model and the bimodal Maternity/NICU (T11) split are still deferred

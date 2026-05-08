@@ -17,7 +17,9 @@
 //
 // Both modes apply: 3-month specific stop-loss reimbursement lag,
 // aggregate stop-loss corridor (when enabled in scenario), bootstrap 95%
-// CIs on every reported percentile.
+// CIs on every reported percentile, and a stop-loss claim payment spread
+// (default 1/3 / 1/3 / 1/3 across three months) modeling adjudication
+// delay + invoice terms on catastrophic claims.
 //
 // Tier-generated mode also models chronic clustering: each run pre-samples
 // which member IDs are chronic (Bernoulli with CHRONIC_PREVALENCE), and
@@ -44,7 +46,7 @@
 // and on a Vercel Function unchanged tomorrow. No imports of localStorage
 // or browser-only globals.
 
-import { CATASTROPHIC_TAIL_DEFAULTS, EVENT_TIER_CATALOG, DEFAULT_INDEMNITY_BENEFITS, CHRONIC_PREVALENCE, CHRONIC_TIER_UPLIFT } from '../constants.js';
+import { CATASTROPHIC_TAIL_DEFAULTS, EVENT_TIER_CATALOG, DEFAULT_INDEMNITY_BENEFITS, CHRONIC_PREVALENCE, CHRONIC_TIER_UPLIFT, STOP_LOSS_PAYMENT_SCHEDULE } from '../constants.js';
 
 // Mulberry32 — same PRNG used by scripts/generate-demo-claims.mjs. Cheap,
 // deterministic, good enough for Monte Carlo.
@@ -259,7 +261,7 @@ function indemnityEventType(bucket, category, modeledCost) {
 //
 // Returns { monthlyOutflow, monthlyReimbursement, annualResidual,
 //           annualIndemnityOffset, annualStopLossShift, totalEvents }.
-function simulateOnceFromCatalog({ catalog, lives, scenario, lagMonths, rng, indemnityBenefits, chronicPrevalence }) {
+function simulateOnceFromCatalog({ catalog, lives, scenario, lagMonths, rng, indemnityBenefits, chronicPrevalence, paymentSchedule }) {
   // DPC clinical mitigation factor. Reduces both per-tier complication
   // probability and the chronic-clustering uplift toward their unmitigated
   // base — DPC catches early warnings (lower complication cascades) and
@@ -402,13 +404,22 @@ function simulateOnceFromCatalog({ catalog, lives, scenario, lagMonths, rng, ind
     }
   }
 
-  // Pass 4: monthly aggregation.
+  // Pass 4: monthly aggregation. Stop-loss-eligible events spread their
+  // outflow across paymentSchedule months (default 1/3 / 1/3 / 1/3) to
+  // model adjudication delay + invoice terms; smaller events settle
+  // same-month. Reimbursement still arrives at month + lagMonths from
+  // the original event incident.
   const monthlyOutflow = new Array(12).fill(0);
   const monthlyReimbursement = new Array(12).fill(0);
   let annualResidual = 0;
+  const spread = paymentSchedule && paymentSchedule.length > 1;
   for (const e of events) {
     const cashOut = e.modeledCost + e.stopLossAmount;
-    monthlyOutflow[e.month] += cashOut;
+    if (e.stopLossAmount > 0 && spread) {
+      spreadOutflow(monthlyOutflow, e.month, cashOut, paymentSchedule);
+    } else {
+      monthlyOutflow[e.month] += cashOut;
+    }
     annualResidual += e.modeledCost;
     if (e.stopLossAmount > 0) {
       const reimbMonth = Math.min(11, e.month + lagMonths);
@@ -439,7 +450,19 @@ function applyAggregateStopLoss(monthlyReimbursement, annualResidual, expectedRe
   return excess;
 }
 
-function simulateOnce(claims, monthlyContribution, lagMonths, rng, tailOverlay) {
+// Apply a payment schedule to a claim's cash outflow, spreading the total
+// across multiple months starting at startMonth. Trailing tranches that
+// fall past month 11 are clamped to month 11 (consistent with the
+// reimbursement clamp) — the dollars still land within the simulation
+// year, just compressed at the end.
+function spreadOutflow(monthlyOutflow, startMonth, totalAmount, schedule) {
+  for (let i = 0; i < schedule.length; i++) {
+    const m = Math.min(11, startMonth + i);
+    monthlyOutflow[m] += totalAmount * schedule[i];
+  }
+}
+
+function simulateOnce(claims, monthlyContribution, lagMonths, rng, tailOverlay, paymentSchedule) {
   const monthlyOutflow = new Array(12).fill(0);
   const monthlyReimbursement = new Array(12).fill(0);
 
@@ -449,11 +472,17 @@ function simulateOnce(claims, monthlyContribution, lagMonths, rng, tailOverlay) 
     const stopLoss = Number(c.stop_loss_amount) || 0;
 
     // Pre-Reimbursement Outflow: the employer pays both the residual portion
-    // and the stop-loss-eligible portion at the time of service. The
-    // stop-loss reimbursement arrives later (lagMonths from now); until it
-    // does, the reserve must float the full amount.
+    // and the stop-loss-eligible portion at the time of service. Large
+    // catastrophic claims (those with stop-loss exposure) spread across
+    // multiple months per paymentSchedule to model adjudication delay +
+    // invoice terms. Smaller cash-pay claims settle same-month. Stop-loss
+    // reimbursement still arrives at month + lagMonths from incident.
     const cashOutNow = residual + stopLoss;
-    monthlyOutflow[month] += cashOutNow;
+    if (stopLoss > 0 && paymentSchedule && paymentSchedule.length > 1) {
+      spreadOutflow(monthlyOutflow, month, cashOutNow, paymentSchedule);
+    } else {
+      monthlyOutflow[month] += cashOutNow;
+    }
 
     if (stopLoss > 0) {
       const reimbMonth = Math.min(11, month + lagMonths);
@@ -477,7 +506,13 @@ function simulateOnce(claims, monthlyContribution, lagMonths, rng, tailOverlay) 
       const residualPortion = Math.min(cost, attachment);
       const stopLossPortion = Math.max(0, cost - attachment);
 
-      monthlyOutflow[month] += cost;
+      // Tail events that breach attachment are catastrophic-size by
+      // construction; spread their outflow on the same schedule.
+      if (stopLossPortion > 0 && paymentSchedule && paymentSchedule.length > 1) {
+        spreadOutflow(monthlyOutflow, month, cost, paymentSchedule);
+      } else {
+        monthlyOutflow[month] += cost;
+      }
       tailGrossOutflow += cost;
 
       if (stopLossPortion > 0) {
@@ -577,7 +612,20 @@ function simulateLiquidityTimingResample({ employer, scenario, modeledClaims, op
   const totalAnnualCashFlow = deterministicCashFlow + tailExpectedNetOutflow;
   const monthlyContribution = totalAnnualCashFlow / 12;
 
-  const seed = hashSeed([employer?.id, scenario?.name, runs, lagMonths, attachmentPoint, tailOverlay ? tailOverlay.expectedCount.toFixed(4) : 'no-tail']);
+  // Stop-loss claim payment schedule. Default spreads catastrophic claims
+  // 1/3 / 1/3 / 1/3 across three months to model adjudication delay +
+  // invoice terms. options.stopLossPaymentSchedule = [1] disables the
+  // spread (single-month outflow) for sensitivity testing.
+  const paymentSchedule = Array.isArray(options.stopLossPaymentSchedule)
+    && options.stopLossPaymentSchedule.length > 0
+    ? options.stopLossPaymentSchedule
+    : STOP_LOSS_PAYMENT_SCHEDULE;
+
+  const seed = hashSeed([
+    employer?.id, scenario?.name, runs, lagMonths, attachmentPoint,
+    tailOverlay ? tailOverlay.expectedCount.toFixed(4) : 'no-tail',
+    paymentSchedule.length, paymentSchedule.map((x) => x.toFixed(4)).join(','),
+  ]);
   const rng = mulberry32(seed);
 
   // Expected residual for aggregate stop-loss attachment. In timing-
@@ -598,7 +646,7 @@ function simulateLiquidityTimingResample({ employer, scenario, modeledClaims, op
   let runsTriggeringAggregate = 0;
 
   for (let i = 0; i < runs; i++) {
-    const r = simulateOnce(claims, monthlyContribution, lagMonths, rng, tailOverlay);
+    const r = simulateOnce(claims, monthlyContribution, lagMonths, rng, tailOverlay, paymentSchedule);
     totalTailEvents += r.tailEventCount;
     totalTailGrossOutflow += r.tailGrossOutflow;
 
@@ -687,12 +735,17 @@ function simulateLiquidityTimingResample({ employer, scenario, modeledClaims, op
           mean_recovery_per_run: runs > 0 ? totalAggregateRecovery / runs : 0,
         }
       : { enabled: false },
+    payment_schedule: {
+      schedule: paymentSchedule.slice(),
+      months: paymentSchedule.length,
+      enabled: paymentSchedule.length > 1,
+    },
     meta: {
       runs,
       horizon_months: 12,
       lag_months: lagMonths,
       seed,
-      method: tailOverlay ? 'timing-resample-with-tail-overlay-v1' : 'timing-resample-v0',
+      method: tailOverlay ? 'timing-resample-with-tail-overlay-v2' : 'timing-resample-v1',
       generated_at: new Date().toISOString(),
     },
   };
@@ -732,6 +785,13 @@ function simulateLiquidityTierGenerated({ employer, scenario, modeledClaims, opt
     : EVENT_TIER_CATALOG;
   const lives = Math.max(1, Number(employer?.covered_lives) || 0);
 
+  // Stop-loss claim payment schedule. Spread defaults to 1/3 over 3 months;
+  // options.stopLossPaymentSchedule = [1] disables (single-month outflow).
+  const paymentSchedule = Array.isArray(options.stopLossPaymentSchedule)
+    && options.stopLossPaymentSchedule.length > 0
+    ? options.stopLossPaymentSchedule
+    : STOP_LOSS_PAYMENT_SCHEDULE;
+
   const seed = hashSeed([
     employer?.id,
     scenario?.name,
@@ -739,6 +799,8 @@ function simulateLiquidityTierGenerated({ employer, scenario, modeledClaims, opt
     lagMonths,
     'tier-generated',
     catalog.length,
+    paymentSchedule.length,
+    paymentSchedule.map((x) => x.toFixed(4)).join(','),
   ]);
   const rng = mulberry32(seed);
 
@@ -808,7 +870,7 @@ function simulateLiquidityTierGenerated({ employer, scenario, modeledClaims, opt
   let runsTriggeringAggregate = 0;
 
   for (let i = 0; i < runs; i++) {
-    const r = simulateOnceFromCatalog({ catalog, lives, scenario, lagMonths, rng, indemnityBenefits, chronicPrevalence: prevalence });
+    const r = simulateOnceFromCatalog({ catalog, lives, scenario, lagMonths, rng, indemnityBenefits, chronicPrevalence: prevalence, paymentSchedule });
     annualResiduals[i] = r.annualResidual;
     totalEvents += r.totalEvents;
     totalComplications += r.totalComplications;
@@ -920,13 +982,18 @@ function simulateLiquidityTierGenerated({ employer, scenario, modeledClaims, opt
           mean_recovery_per_run: runs > 0 ? totalAggregateRecovery / runs : 0,
         }
       : { enabled: false },
+    payment_schedule: {
+      schedule: paymentSchedule.slice(),
+      months: paymentSchedule.length,
+      enabled: paymentSchedule.length > 1,
+    },
     tail: { enabled: false },
     meta: {
       runs,
       horizon_months: 12,
       lag_months: lagMonths,
       seed,
-      method: 'tier-generated-v3',
+      method: 'tier-generated-v4',
       catalog_length: catalog.length,
       generated_at: new Date().toISOString(),
     },

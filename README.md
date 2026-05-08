@@ -396,6 +396,7 @@ The catalog has 11 tiers per Spec v1.2 §4 (T1 primary care through T11 maternit
 **Both modes share:**
 - Pareto catastrophic event tail overlay in timing-resample mode (default λ=0.005 per member-year, scale=$50K, shape=1.5 → mean $150K)
 - 3-month stop-loss reimbursement lag
+- Stop-loss claim payment spread: catastrophic claims (`stop_loss_amount > 0`) spread cash outflow 1/3 / 1/3 / 1/3 across three months to model adjudication delay + invoice terms; smaller cash-pay claims settle same-month. Override via `options.stopLossPaymentSchedule = [1]` to disable.
 - Monthly resolution
 - 5,000 runs server-side / 1,000 client-side
 
@@ -409,6 +410,7 @@ The catalog has 11 tiers per Spec v1.2 §4 (T1 primary care through T11 maternit
 | P50 / P75 / P90 / P95 / P99 of max cumulative drawdown | **Computed** — with bootstrap 95% CIs (500 resamples) on every percentile |
 | Replenishment-aware Net Drawdown | **Computed** — monthly contribution = annual cash flow / 12 |
 | Reimbursement-lag Pre-Reimbursement Outflow | **Computed** — fixed 3-month lag (75-day approximation) |
+| Stop-loss claim payment spread (adjudication delay + invoice terms) | **Computed** — `STOP_LOSS_PAYMENT_SCHEDULE = [1/3, 1/3, 1/3]` in `src/constants.js`; applied to claims with `stop_loss_amount > 0` only. Reduces MRL by 30–45% vs single-month outflow on catastrophic-heavy populations |
 | Heavy-tail Pareto for inpatient catastrophic events | **Computed** — overlay in timing-resample (default λ=0.005/member-yr, scale=$50K, shape=1.5); native to T8/T9 in tier-generated |
 | Full 11-tier event catalog with per-tier Poisson frequencies | **Computed** — `EVENT_TIER_CATALOG` in `src/constants.js` is the v2 mode's source of truth |
 | Calibration drift indicator | **Computed** — drift_pct + out_of_band flag returned per simulation; UI banner fires at ±10% |
@@ -422,7 +424,7 @@ The catalog has 11 tiers per Spec v1.2 §4 (T1 primary care through T11 maternit
 | Spec v1.2 monthly-recurrence model for Specialty Rx (T10) | **Not modeled** — collapsed to per-event sampling for MVP |
 | Spec v1.2 bimodal Maternity/NICU split (T11) | **Not modeled** — single log-normal for MVP |
 
-**Where the overlay lands in calibration.** *Note: these reference numbers are from the v1 catastrophic-overlay-only build. The v3 build (chronic clustering, complications, NegBin, aggregate stop-loss) shifts MRL by single-digit percent in either direction depending on the employer's chronic mix and the active scenario's `dpc_clinical_mitigation_pct`; refresh from the running app rather than this paragraph for any commercial conversation.* ABC Manufacturing at the Expected preset under the v1 overlay — MRL ≈ $280K, CER ≈ 5.5×, P99 ≈ $750K. Translating to PEPM-equivalent: MRL/lives/12 ≈ $144 PEPM, which sits between the Spec v1.2 worked example anchor ($115 PEPM) and the deterministic baseline ($85 PEPM residual + ~$130 stop-loss = $215 PEPM annual run-rate). Riverdale and XYZ produce comparable PEPM-equivalents. The tail overlay's λ is the single calibration knob for timing-resample mode; lower λ shifts the simulator back toward "this employer's actual claims" and higher λ toward "any plausible employer of this size."
+**Where the overlay lands in calibration.** *Note: reference numbers below are pre-payment-spread (single-month catastrophic outflow). Adding the 1/3 / 1/3 / 1/3 spread reduces MRL by ~30–45% on catastrophic-heavy populations because peak deficit no longer absorbs the full hospital bill in one shot. Refresh from the running app rather than this paragraph for any commercial conversation.* ABC Manufacturing at the Expected preset under the pre-spread v1 overlay — MRL ≈ $280K, CER ≈ 5.5×, P99 ≈ $750K. Translating to PEPM-equivalent: MRL/lives/12 ≈ $144 PEPM, which sits between the Spec v1.2 worked example anchor ($115 PEPM) and the deterministic baseline ($85 PEPM residual + ~$130 stop-loss = $215 PEPM annual run-rate). Riverdale and XYZ produced comparable PEPM-equivalents under the pre-spread build; with the spread, expect CER 7–10× across the demos. The tail overlay's λ is the single calibration knob for timing-resample mode; lower λ shifts the simulator back toward "this employer's actual claims" and higher λ toward "any plausible employer of this size."
 
 **DPC clinical mitigation factor.** Both complication probability and chronic uplift are scaled by `(1 − scenario.dpc_clinical_mitigation_pct)` — a single knob that captures DPC's clinical effect on event frequency. The model is: monthly-membership primary care absorbs chronic management (so chronic flares route through PCP rather than ER/inpatient) and PCP catches complication early-warnings before they cascade. Preset values: conservative 0.20, expected 0.30, aggressive 0.45. The Pareto tail overlay in timing-resample mode is **not** mitigated — it represents truly catastrophic events (cancer diagnosis, major trauma) where DPC's preventive leverage is weak.
 
