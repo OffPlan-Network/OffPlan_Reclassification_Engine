@@ -225,9 +225,30 @@ export const EVENT_TIER_CATALOG = [
   // is also removed from CHRONIC_TIER_UPLIFT for the same reason.
   { tier: 10, label: 'Specialty Rx fill',         lambda_per_member_year: 0.30, bucket: 'D', normalized_category: 'Specialty Rx',       cost_dist: 'lognormal', cost_mu: 7.98,  cost_sigma: 0.6, mean_cost: 3500,
     regimen_mode: 'monthly_recurrence', regimen_member_fraction: 0.03, fills_per_member_year: 12 },
-  // T11 — Maternity / NICU. Simplified to single log-normal for MVP; bimodal
-  // routine vs NICU treatment deferred.
-  { tier: 11, label: 'Maternity / delivery',      lambda_per_member_year: 0.010, bucket: 'E', normalized_category: 'Inpatient',         cost_dist: 'lognormal', cost_mu: 9.30,  cost_sigma: 0.8, mean_cost: 15000 },
+  // T11 — Maternity / routine delivery. Per Liquidity Spec v1.2 §4 bimodal
+  // split. Routine births (vaginal or scheduled C-section without NICU) are
+  // plannable care that can be priced at contracted/transparent rates,
+  // similar to outpatient specialty surgery — modeled as Bucket B (cash-pay
+  // repriced via scenario.cashpay_discount_factor, 70%/50%/40% across
+  // presets). Reflects the OffPlan thesis that maternity follows the same
+  // pricing-transparency mechanism as ASC procedures and specialty consults
+  // when uncomplicated.
+  //
+  // Cost calibration: log-normal mean $12K with sigma=0.4 (tight). CDC
+  // working-age employer-pop birth rate ≈ 1% of total covered lives per
+  // year; routine/complicated split is roughly 80/20 per NCHS NICU data.
+  // λ=0.008 captures the 80% routine share. Triggers Hospital Admission
+  // indemnity offset ($2.5K/event) just like the catastrophic path.
+  { tier: 11, label: 'Maternity / routine delivery',  lambda_per_member_year: 0.008, bucket: 'B', normalized_category: 'Inpatient', cost_dist: 'lognormal', cost_mu: 9.31,   cost_sigma: 0.4, mean_cost: 12000 },
+  // T12 — Maternity / NICU complications. The other half of the bimodal
+  // split: premature births, NICU stays, emergency C-sections with
+  // complications. Cannot be cash-pay repriced — flows through Bucket E
+  // (catastrophic) with member-aggregate stop-loss attachment. The σ=0.7
+  // log-normal captures the heavy NICU tail ($40K-$300K typical range,
+  // mean $80K reflecting that NICU stays average ~$3K/day for ~14 days
+  // plus delivery + complication-driven extension). λ=0.002 captures the
+  // 20% complicated share of total maternity events.
+  { tier: 12, label: 'Maternity / NICU complications', lambda_per_member_year: 0.002, bucket: 'E', normalized_category: 'Inpatient', cost_dist: 'lognormal', cost_mu: 11.045, cost_sigma: 0.7, mean_cost: 80000 },
 ];
 
 // Chronic-clustering parameters for the tier-generated stochastic mode.

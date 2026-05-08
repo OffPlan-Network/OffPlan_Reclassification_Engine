@@ -1061,7 +1061,7 @@ function simulateLiquidityTierGenerated({ employer, scenario, modeledClaims, opt
       horizon_months: 12,
       lag_months: lagMonths,
       seed,
-      method: 'tier-generated-v5',
+      method: 'tier-generated-v6',
       catalog_length: catalog.length,
       generated_at: new Date().toISOString(),
     },

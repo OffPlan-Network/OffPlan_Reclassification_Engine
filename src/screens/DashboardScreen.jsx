@@ -102,7 +102,7 @@ export function DashboardScreen({ employer, scenario, result, classifiedClaims, 
           <div>
             <strong>Prototype scope: deterministic classification + stochastic MRL with tail overlay.</strong>
             <div className="mt-1 leading-relaxed">
-              This build produces the residual fund and the OffPlan stack PEPM (deterministic), plus a Monte Carlo Min Required Liquidity in either timing-resample mode (resamples deterministic claims + Pareto catastrophic tail overlay) or tier-generated mode (events generated fresh from the 11-tier catalog with Poisson/NegBin frequency, run through the full member-aggregating cascade with indemnity offset, aggregate stop-loss corridor, complication recursion, chronic-flag clustering on a pre-sampled chronic member pool, and a monthly-recurrence Specialty Rx regimen on ~3% of members). DPC's clinical effect — monthly-membership absorbing chronic management and PCP catching complication early-warnings — is modeled as a single mitigation factor that shrinks both the per-tier complication probability and the chronic uplift. Stop-loss-eligible (catastrophic) claims spread their cash outflow 1/3 / 1/3 / 1/3 across three months to model adjudication delay + invoice terms; smaller cash-pay claims settle same-month. We take the P95 of max cumulative drawdown across the run set, with bootstrap 95% confidence intervals on every reported percentile. Still deferred per Liquidity Spec v1.2: the bimodal Maternity/NICU (T11) split. The MRL is calibrated to spec-anchored numbers but should still be treated as a directional CFO conversation tool, not as an MGU underwriting submission. The "Risk Margin × Residual" formula in §6.6 of the spec is the deprecated v3.0/v3.1 funding construct retained as an intermediate placeholder.
+              This build produces the residual fund and the OffPlan stack PEPM (deterministic), plus a Monte Carlo Min Required Liquidity in either timing-resample mode (resamples deterministic claims + Pareto catastrophic tail overlay) or tier-generated mode (events generated fresh from the 12-tier catalog with Poisson/NegBin frequency, run through the full member-aggregating cascade with indemnity offset, aggregate stop-loss corridor, complication recursion, chronic-flag clustering on a pre-sampled chronic member pool, monthly-recurrence Specialty Rx regimen on ~3% of members, and a bimodal Maternity split that prices routine deliveries via cash-pay repricing while NICU complications flow through stop-loss). DPC's clinical effect — monthly-membership absorbing chronic management and PCP catching complication early-warnings — is modeled as a single mitigation factor that shrinks both the per-tier complication probability and the chronic uplift. Stop-loss-eligible (catastrophic) claims spread their cash outflow 1/3 / 1/3 / 1/3 across three months to model adjudication delay + invoice terms; smaller cash-pay claims settle same-month. We take the P95 of max cumulative drawdown across the run set, with bootstrap 95% confidence intervals on every reported percentile. Every Liquidity Spec v1.2 §4 stochastic-layer item is now implemented. The MRL is calibrated to spec-anchored numbers but should still be treated as a directional CFO conversation tool, not as an MGU underwriting submission. The "Risk Margin × Residual" formula in §6.6 of the spec is the deprecated v3.0/v3.1 funding construct retained as an intermediate placeholder.
             </div>
           </div>
         </div>
@@ -448,9 +448,9 @@ export function DashboardScreen({ employer, scenario, result, classifiedClaims, 
                 (adjudication delay + invoice terms); smaller claims settle same-month.
               </>
             )}
-            {' '}The bimodal Maternity/NICU (T11) split is still deferred
-            (see README §11). Use this as a directional CFO conversation anchor, not MGU underwriting input.
-            Production replaces this with the full Liquidity Spec v1.2 stochastic layer.
+            {' '}Every Liquidity Spec v1.2 §4 item is now implemented (see README §11).
+            Use this as a directional CFO conversation anchor, not MGU underwriting input.
+            Production replaces the auto-estimated chronic prevalence with employer-supplied HCC data or full ICD-10 ingestion.
           </div>
         </div>
       )}
