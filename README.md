@@ -382,16 +382,16 @@ Every ingested claim is stamped with the IDs of the currently active versions, s
 
 ---
 
-## 11. Stochastic liquidity layer — v2 scope
+## 11. Stochastic liquidity layer — v3 scope
 
 The Monte Carlo in `src/engine/stochastic.js` ships **two simulation modes**, surfaced as a toggle on the Dashboard. They answer subtly different questions:
 
 | Mode | Question answered | Calibration anchor | When to use |
 |---|---|---|---|
 | **`timing-resample`** (default) | "Given this employer's actual claims, how much liquidity did they need to weather that year's worst-month drawdown?" | The deterministic engine's residual_fund (matches by construction) | Primary number for CFO conversations; calibrated to actual claims |
-| **`tier-generated`** (v2) | "Given a typical SMB at this employer's size, how much liquidity should they expect?" | Industry-typical SMB event mix (`EVENT_TIER_CATALOG` in `src/constants.js`) | Sensitivity check; drift-pct shows how this employer compares to the SMB norm |
+| **`tier-generated`** (v3) | "Given a typical SMB at this employer's size, how much liquidity should they expect?" | Industry-typical SMB event mix (`EVENT_TIER_CATALOG` in `src/constants.js`) | Sensitivity check; drift-pct shows how this employer compares to the SMB norm |
 
-The catalog has 11 tiers per Spec v1.2 §4 (T1 primary care through T11 maternity), with Poisson frequency × log-normal cost for non-catastrophic tiers and Pareto cost for inpatient T8/T9. Sampled events go through a simplified per-event OffPlan transformation — full member-aggregating cascade is skipped for performance (~5K runs in <1s).
+The catalog has 11 tiers per Spec v1.2 §4 (T1 primary care through T11 maternity), with Poisson frequency × log-normal cost for non-catastrophic tiers, NegBin frequency for inpatient T8 (over-dispersion), and Pareto cost for T8/T9. Sampled events run through the full member-aggregating cascade (per-event reduction → indemnity offset → member-aggregate stop-loss → aggregate corridor) — same five-stage logic the deterministic engine uses, inlined for performance. 1,000 runs land in <500 ms client-side; 5,000 runs in <2s server-side.
 
 **Both modes share:**
 - Pareto catastrophic event tail overlay in timing-resample mode (default λ=0.005 per member-year, scale=$50K, shape=1.5 → mean $150K)
@@ -417,18 +417,20 @@ The catalog has 11 tiers per Spec v1.2 §4 (T1 primary care through T11 maternit
 | Member-aggregate stop-loss split in tier-generated mode | **Computed** — events grouped by member, overage drained from largest claims |
 | Aggregate stop-loss corridor | **Computed** — opt-in via scenario flag; reimburses excess residual at month 11 when annual residual breaches `expected × attachment_pct` |
 | Complication probability + lag (Spec v1.2 §4.1) | **Computed** — tiers 5–9 roll for a complication on the same member with log-normal lag, depth-capped at 3; rate scaled by `(1 − dpc_clinical_mitigation_pct)` |
-| Chronic_flag-driven event clustering (Spec v1.2 §4.1) | **Computed** — `CHRONIC_PREVALENCE = 0.28` of the run's member pool draws events at λ × effective_uplift on T2/T4/T5/T6/T7/T8/T10 (`CHRONIC_TIER_UPLIFT` in `src/constants.js`); effective uplift = `1 + (raw_uplift − 1) × (1 − dpc_clinical_mitigation_pct)` |
+| Chronic_flag-driven event clustering (Spec v1.2 §4.1) | **Computed** — `CHRONIC_PREVALENCE = 0.28` of the run's member pool (or `employer.chronic_prevalence` override, auto-estimated from claims at ingestion via `src/engine/calibration.js`) draws events at λ × effective_uplift on T2/T4/T5/T6/T7/T8/T10 (`CHRONIC_TIER_UPLIFT` in `src/constants.js`); effective uplift = `1 + (raw_uplift − 1) × (1 − dpc_clinical_mitigation_pct)` |
 | Bootstrap confidence intervals on percentiles | **Computed** — 500-resample bootstrap with derived seed; surfaces 2.5%/97.5% bounds on P50/P75/P90/P95/P99 |
 | Spec v1.2 monthly-recurrence model for Specialty Rx (T10) | **Not modeled** — collapsed to per-event sampling for MVP |
 | Spec v1.2 bimodal Maternity/NICU split (T11) | **Not modeled** — single log-normal for MVP |
 
-**Where the overlay lands in calibration.** ABC Manufacturing at the Expected preset — MRL ≈ $280K, CER ≈ 5.5×, P99 ≈ $750K. Translating to PEPM-equivalent: MRL/lives/12 ≈ $144 PEPM, which sits between the Spec v1.2 worked example anchor ($115 PEPM) and the deterministic baseline ($85 PEPM residual + ~$130 stop-loss = $215 PEPM annual run-rate). Riverdale and XYZ produce comparable PEPM-equivalents under the same overlay. The overlay's λ is the single calibration knob; lower λ shifts the simulator back toward "this employer's actual claims" and higher λ toward "any plausible employer of this size."
+**Where the overlay lands in calibration.** *Note: these reference numbers are from the v1 catastrophic-overlay-only build. The v3 build (chronic clustering, complications, NegBin, aggregate stop-loss) shifts MRL by single-digit percent in either direction depending on the employer's chronic mix and the active scenario's `dpc_clinical_mitigation_pct`; refresh from the running app rather than this paragraph for any commercial conversation.* ABC Manufacturing at the Expected preset under the v1 overlay — MRL ≈ $280K, CER ≈ 5.5×, P99 ≈ $750K. Translating to PEPM-equivalent: MRL/lives/12 ≈ $144 PEPM, which sits between the Spec v1.2 worked example anchor ($115 PEPM) and the deterministic baseline ($85 PEPM residual + ~$130 stop-loss = $215 PEPM annual run-rate). Riverdale and XYZ produce comparable PEPM-equivalents. The tail overlay's λ is the single calibration knob for timing-resample mode; lower λ shifts the simulator back toward "this employer's actual claims" and higher λ toward "any plausible employer of this size."
 
 **DPC clinical mitigation factor.** Both complication probability and chronic uplift are scaled by `(1 − scenario.dpc_clinical_mitigation_pct)` — a single knob that captures DPC's clinical effect on event frequency. The model is: monthly-membership primary care absorbs chronic management (so chronic flares route through PCP rather than ER/inpatient) and PCP catches complication early-warnings before they cascade. Preset values: conservative 0.20, expected 0.30, aggressive 0.45. The Pareto tail overlay in timing-resample mode is **not** mitigated — it represents truly catastrophic events (cancer diagnosis, major trauma) where DPC's preventive leverage is weak.
 
 **What the simulator still does NOT model.** Spec v1.2's monthly-recurrence model for Specialty Rx (T10) — chronic-disease drug regimens with deterministic month-over-month persistence — is collapsed to per-event sampling. Spec v1.2's bimodal split for Maternity (T11) — routine delivery vs NICU treatment — is collapsed to a single log-normal. Both gaps modestly understate cost concentration; for typical SMB populations the impact on P95 is sub-1%.
 
-**Bottom line for stakeholders:** this build produces a directional MRL number anchored to spec-equivalent values (CER 4–7× across the demos, P99 in the right order of magnitude for SMB populations) with bootstrap CIs that surface percentile uncertainty and a DPC-mitigated chronic-clustering layer that responds to scenario tuning. It supports CFO conversations and prospect demos. It is **not yet** sufficient as an MGU underwriting submission — that step still requires the T10/T11 spec refinements and per-employer chronic-prevalence calibration to replace the population default.
+**Per-employer chronic-prevalence calibration.** On every claims ingestion, `estimateChronicPrevalence()` (in `src/engine/calibration.js`) computes the share of unique members whose claims include either a Bucket E event or > $5K of cumulative non-Bucket-A spend, and stamps it on the employer record as `chronic_prevalence` (with `chronic_prevalence_source: 'auto'`). The Setup screen exposes a manual override that flips the source to `'manual'`, after which auto-estimation no longer overwrites it. The stochastic engine reads `employer.chronic_prevalence` and falls back to the population default only when the override is unset or out of range. The `chronic_clustering` block in the result surfaces both the value used and its source.
+
+**Bottom line for stakeholders:** this build produces a directional MRL number anchored to spec-equivalent values (CER 4–7× across the demos, P99 in the right order of magnitude for SMB populations) with bootstrap CIs that surface percentile uncertainty and a DPC-mitigated chronic-clustering layer that responds to scenario tuning and per-employer prevalence calibration. It supports CFO conversations and prospect demos. It is **not yet** sufficient as an MGU underwriting submission — that step still requires the T10/T11 spec refinements.
 
 ---
 
@@ -458,23 +460,52 @@ The frozen JSONs are produced by `scripts/generate-demo-claims.mjs` using a seed
 
 ```
 src/
-  App.jsx                  Single source of truth: all state, screen routing, ingestion, version cutting
-  constants.js             DEFAULT_CPT_RULES, cash prices, indemnity benefits, reprice factors, presets
+  App.jsx                  Single source of truth: all state, screen routing, ingestion, version cutting,
+                           chronic-prevalence auto-calibration on every claims ingestion
+  constants.js             DEFAULT_CPT_RULES, cash prices, indemnity benefits, reprice factors, presets,
+                           EVENT_TIER_CATALOG (11 tiers), CHRONIC_PREVALENCE, CHRONIC_TIER_UPLIFT,
+                           CATASTROPHIC_TAIL_DEFAULTS, OFFPLAN_* stack constants
   demo-cases.js            Three pre-built employer cases (ABC, XYZ, Riverdale)
-  storage.js               localStorage wrapper with in-memory fallback (db.get/set/list/delete)
+  storage.js               Two-backend db wrapper (localStorage / api), switched by VITE_STORAGE_BACKEND
   engine/
     classify.js            normalizeAndClassify — bucket precedence resolution
-    calculate.js           runCalculation — the five-stage cascade
+    calculate.js           runCalculation — the deterministic five-stage cascade
     synthetic.js           generateSyntheticClaims (Mode 3), decomposePartialSummary (Mode 2)
+    stochastic.js          simulateLiquidity — two-mode Monte Carlo MRL simulator
+                           (timing-resample + tier-generated v3); chronic clustering, complications,
+                           NegBin, aggregate corridor, bootstrap CIs, DPC mitigation
+    calibration.js         estimateChronicPrevalence — auto-calibrates per-employer chronic share
+                           from classified claims (E-bucket events or > $5K non-A spend)
+  hooks/
+    useLiquidity.js        Liquidity-fetch state machine; switches between inline simulateLiquidity
+                           (localStorage backend) and POST /api/liquidity/simulate (api backend)
   screens/
     CasesScreen, SetupScreen, UploadScreen, ClassifyScreen,
     ScenarioScreen, DashboardScreen, ReportScreen, AdminScreen
   ui/                      Header, Toast, Field, BucketBadge, Provenance, formatters
 
+api/                       Vercel Functions, auto-deployed alongside the SPA
+  storage/index.js         GET/POST/DELETE for the app_data key-value table
+  storage/[key].js         Per-key handler (used by `db` when VITE_STORAGE_BACKEND=api)
+  liquidity/simulate.js    Server-side liquidity simulator with Postgres-backed cache
+                           (5,000 runs default; cache key includes scenario, claims sig, prevalence)
+  _lib/storage-handler.js  Shared storage helpers (getOne, setOne, parseBody, StorageError)
+
+db/
+  schema.js                Drizzle schema for the app_data key-value table
+  client.js                Drizzle/Neon client factory
+
 public/data/               Frozen demo JSONs + CSV templates (Templates 1, 2, 3 from spec)
+public/migrate.html        One-shot localStorage → Postgres migration tool
 scripts/
   generate-demo-claims.mjs Seeded regeneration of demo_*_claims.json
+  api-server.mjs           Local Node HTTP harness for api/* (used by api:serve / api:test)
+  api-test.mjs             Scripted HTTP smoke against the local harness
+  db-smoke.mjs             Direct Postgres round-trip smoke against api/_lib/storage-handler
+tests/
+  ui-smoke.spec.js         Playwright e2e — Cases → MRL completion, both stochastic modes, /migrate.html
 docs/                      Authoritative spec docs (Master Spec v3.3, Liquidity Spec v1.2, etc.)
+drizzle.config.js          Drizzle Kit config — schema source + dialect for `db:push`
 ```
 
 There is no router. Screen state lives in `App.jsx` (`screen` + `setScreen`). The typical user flow is **Cases → Setup → Upload → Classify → Scenario → Dashboard → Report**. Admin is the side door for cash-pay / indemnity / repricing / CPT-rule edits.

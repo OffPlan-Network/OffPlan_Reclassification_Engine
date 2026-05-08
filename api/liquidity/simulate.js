@@ -31,7 +31,8 @@ import {
 } from '../../src/constants.js';
 
 const DEFAULT_RUNS = 5000;
-const CACHE_VERSION = 'v1';   // bump when sim semantics change to invalidate caches
+const CACHE_VERSION = 'v2';   // bump when sim semantics change to invalidate caches
+                              // v2 (May 2026): chronic clustering + DPC mitigation + per-employer prevalence
 
 // FNV-1a string hash. Same shape as the engine's internal seed hash but
 // emits a hex digest suitable for cache keys.
@@ -55,7 +56,7 @@ function claimsSignature(claims) {
   return `${(claims || []).length}:${Math.round(total)}`;
 }
 
-function cacheKey(employerId, scenario, claimsSig, runs, mode) {
+function cacheKey(employerId, scenario, claimsSig, runs, mode, chronicPrevalence) {
   const scenarioHash = hashString([
     scenario?.name,
     scenario?.dpc_elimination_pct,
@@ -66,8 +67,12 @@ function cacheKey(employerId, scenario, claimsSig, runs, mode) {
     scenario?.attachment_point,
     scenario?.stop_loss_pepm,
     scenario?.risk_margin,
+    scenario?.aggregate_stop_loss_enabled,
+    scenario?.aggregate_attachment_pct,
+    scenario?.dpc_clinical_mitigation_pct,
   ]);
-  return `liquidity_cache:${CACHE_VERSION}:${employerId}:${scenarioHash}:${hashString([claimsSig])}:${mode || 'default'}:${runs}`;
+  const prevSig = Number.isFinite(chronicPrevalence) ? chronicPrevalence.toFixed(4) : 'default';
+  return `liquidity_cache:${CACHE_VERSION}:${employerId}:${scenarioHash}:${hashString([claimsSig])}:${mode || 'default'}:p=${prevSig}:${runs}`;
 }
 
 export default async function handler(req, res) {
@@ -95,10 +100,21 @@ export default async function handler(req, res) {
       throw new StorageError(404, `no claims found for employer ${employerId}`);
     }
 
-    // 2. Cache lookup.
+    // 2. Pull employer first — its chronic_prevalence must enter the cache key.
+    const employer = (await getOne(`employer:${employerId}`)) || {};
+
+    // 3. Cache lookup.
     const sig = claimsSignature(claims);
     const mode = options?.mode || 'timing-resample';
-    const key = cacheKey(employerId, scenario, sig, runs, mode);
+    const employerPrevalence = Number(employer?.chronic_prevalence);
+    const key = cacheKey(
+      employerId,
+      scenario,
+      sig,
+      runs,
+      mode,
+      Number.isFinite(employerPrevalence) ? employerPrevalence : null,
+    );
     if (!force) {
       const hit = await getOne(key);
       if (hit && hit.result) {
@@ -106,10 +122,8 @@ export default async function handler(req, res) {
       }
     }
 
-    // 3. Re-run the deterministic cascade. We pull the employer profile so
-    // simulateLiquidity has covered_lives + current_total_healthcare_spend.
-    const employer = (await getOne(`employer:${employerId}`)) || {};
-
+    // 4. Re-run the deterministic cascade so simulateLiquidity has fresh
+    // residual_amount / stop_loss_amount stamped per-claim.
     const t0 = Date.now();
     const calc = runCalculation(
       claims,

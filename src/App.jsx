@@ -18,6 +18,7 @@ import {
 import { normalizeAndClassify } from './engine/classify.js';
 import { runCalculation } from './engine/calculate.js';
 import { generateSyntheticClaims, decomposePartialSummary } from './engine/synthetic.js';
+import { estimateChronicPrevalence } from './engine/calibration.js';
 import { Header } from './ui/Header.jsx';
 import { Toast } from './ui/Toast.jsx';
 import { SCREENS } from './screens/index.js';
@@ -258,6 +259,24 @@ export default function App() {
 
     await db.set(`input_mode:${employerId}`, inputModeRow);
     await db.set(`claims:${employerId}`, classified);
+
+    // Auto-calibrate chronic prevalence from the freshly classified claims,
+    // unless the user has manually overridden it. Stamps source='auto' so we
+    // know the value can be refreshed on the next ingestion.
+    const employerForCalibration = await db.get(`employer:${employerId}`);
+    if (employerForCalibration && employerForCalibration.chronic_prevalence_source !== 'manual') {
+      const estimated = estimateChronicPrevalence(classified.filter((c) => !c.excluded));
+      if (estimated != null) {
+        const updated = {
+          ...employerForCalibration,
+          chronic_prevalence: estimated,
+          chronic_prevalence_source: 'auto',
+        };
+        await db.set(`employer:${employerId}`, updated);
+        if (activeEmployerId === employerId) setActiveEmployer(updated);
+      }
+    }
+
     setInputModeRecord(inputModeRow);
     setClaims(classified);
     setClassifiedClaims(classified.filter((x) => x.bucket));

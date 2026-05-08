@@ -259,7 +259,7 @@ function indemnityEventType(bucket, category, modeledCost) {
 //
 // Returns { monthlyOutflow, monthlyReimbursement, annualResidual,
 //           annualIndemnityOffset, annualStopLossShift, totalEvents }.
-function simulateOnceFromCatalog({ catalog, lives, scenario, lagMonths, rng, indemnityBenefits }) {
+function simulateOnceFromCatalog({ catalog, lives, scenario, lagMonths, rng, indemnityBenefits, chronicPrevalence }) {
   // DPC clinical mitigation factor. Reduces both per-tier complication
   // probability and the chronic-clustering uplift toward their unmitigated
   // base — DPC catches early warnings (lower complication cascades) and
@@ -271,7 +271,8 @@ function simulateOnceFromCatalog({ catalog, lives, scenario, lagMonths, rng, ind
   // shared across all tiers within the run. Member IDs 0..chronicCount-1 are
   // chronic; chronicCount..lives-1 are non-chronic. (No global member registry
   // is needed — only the index range matters.)
-  const chronicCount = Math.round(lives * CHRONIC_PREVALENCE);
+  const prevalence = Math.min(1, Math.max(0, Number(chronicPrevalence)));
+  const chronicCount = Math.round(lives * prevalence);
   const nonchronicCount = lives - chronicCount;
 
   // Pass 1: generate primary events plus complications. Complications occur
@@ -754,7 +755,16 @@ function simulateLiquidityTierGenerated({ employer, scenario, modeledClaims, opt
   // complication recursion or the contribution-rate setpoint will be
   // chronically too low, inflating MRL.
   const dpcMitigation = Math.min(1, Math.max(0, Number(scenario?.dpc_clinical_mitigation_pct) || 0));
-  const chronicCount = Math.round(lives * CHRONIC_PREVALENCE);
+  // Resolve chronic prevalence: per-employer override wins over the
+  // population default. The override is auto-estimated from classified
+  // claims at ingestion time (see src/engine/calibration.js) and may be
+  // manually edited via Setup.
+  const employerPrevalence = Number(employer?.chronic_prevalence);
+  const prevalenceFromEmployer = Number.isFinite(employerPrevalence)
+    && employerPrevalence >= 0 && employerPrevalence <= 1;
+  const prevalence = prevalenceFromEmployer ? employerPrevalence : CHRONIC_PREVALENCE;
+  const prevalenceSource = prevalenceFromEmployer ? 'employer' : 'default';
+  const chronicCount = Math.round(lives * prevalence);
   const nonchronicCount = lives - chronicCount;
   const tierMultipliers = catalog.map((tier) => {
     const rawUplift = Number(CHRONIC_TIER_UPLIFT[tier.tier]) || 1;
@@ -798,7 +808,7 @@ function simulateLiquidityTierGenerated({ employer, scenario, modeledClaims, opt
   let runsTriggeringAggregate = 0;
 
   for (let i = 0; i < runs; i++) {
-    const r = simulateOnceFromCatalog({ catalog, lives, scenario, lagMonths, rng, indemnityBenefits });
+    const r = simulateOnceFromCatalog({ catalog, lives, scenario, lagMonths, rng, indemnityBenefits, chronicPrevalence: prevalence });
     annualResiduals[i] = r.annualResidual;
     totalEvents += r.totalEvents;
     totalComplications += r.totalComplications;
@@ -882,7 +892,9 @@ function simulateLiquidityTierGenerated({ employer, scenario, modeledClaims, opt
     },
     chronic_clustering: {
       enabled: chronicCount > 0,
-      prevalence: CHRONIC_PREVALENCE,
+      prevalence,
+      prevalence_source: prevalenceSource,
+      population_default_prevalence: CHRONIC_PREVALENCE,
       chronic_lives: chronicCount,
       nonchronic_lives: nonchronicCount,
       dpc_clinical_mitigation_pct: dpcMitigation,

@@ -6,7 +6,7 @@ const STORAGE_BACKEND = (typeof import.meta !== 'undefined' && import.meta.env?.
 // Cheap stable hash of the inputs that affect the simulation outcome.
 // Used to detect when we need to re-fetch / re-compute.
 function fingerprint(employer, scenario, claims, mode) {
-  const empSig = `${employer?.id}|${employer?.covered_lives}|${employer?.current_total_healthcare_spend}`;
+  const empSig = `${employer?.id}|${employer?.covered_lives}|${employer?.current_total_healthcare_spend}|${employer?.chronic_prevalence ?? 'def'}`;
   const scnSig = JSON.stringify(scenario || {});
   let total = 0;
   for (const c of claims || []) total += Number(c?.allowed_amount) || 0;
@@ -94,7 +94,7 @@ export function useLiquidity({ employer, scenario, modeledClaims, options = {} }
       });
 
     return () => { cancelled = true; };
-  }, [employer?.id, employer?.covered_lives, employer?.current_total_healthcare_spend, scenario, modeledClaims, options.runs, mode]);
+  }, [employer?.id, employer?.covered_lives, employer?.current_total_healthcare_spend, employer?.chronic_prevalence, scenario, modeledClaims, options.runs, mode]);
 
   return state;
 }

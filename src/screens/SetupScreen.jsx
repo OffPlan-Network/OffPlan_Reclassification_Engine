@@ -3,6 +3,12 @@ import { AlertTriangle } from 'lucide-react';
 import { Field } from '../ui/Field.jsx';
 import { fmtUSD } from '../ui/formatters.js';
 
+// Default chronic prevalence per CDC working-age data, mirroring
+// CHRONIC_PREVALENCE in src/constants.js. Surfaced here as a UX hint only —
+// the engine reads the constant directly when employer.chronic_prevalence
+// is unset.
+const DEFAULT_CHRONIC_PREVALENCE_PCT = 28;
+
 export function SetupScreen({ initial, onSave }) {
   const [form, setForm] = useState(initial || {
     id: `EMP_${Date.now()}`,
@@ -23,7 +29,17 @@ export function SetupScreen({ initial, onSave }) {
     claims_period_start: "2025-01-01",
     claims_period_end: "2025-12-31",
     plan_type: "Fully Insured",
+    chronic_prevalence: undefined,
+    chronic_prevalence_source: undefined,
     created_at: Date.now(),
+  });
+
+  // Chronic-prevalence input is displayed as a percentage (e.g. "28" for 0.28).
+  // We track it as a separate string so the user can clear/edit freely; on
+  // save we parse and convert back to a fraction.
+  const [prevalencePctInput, setPrevalencePctInput] = useState(() => {
+    const v = Number(initial?.chronic_prevalence);
+    return Number.isFinite(v) && v > 0 ? (v * 100).toFixed(1).replace(/\.0$/, '') : "";
   });
 
   const set = (k, v) => setForm({ ...form, [k]: v });
@@ -270,13 +286,72 @@ export function SetupScreen({ initial, onSave }) {
           </Field>
         </div>
 
+        <div className="border-t border-stone-200 pt-6 mt-2">
+          <div className="text-[10px] uppercase tracking-[0.18em] text-stone-500 font-semibold mb-1">
+            Stochastic Calibration · Optional
+          </div>
+          <h3 className="font-display text-2xl text-stone-900 mb-1">Chronic prevalence</h3>
+          <p className="text-xs text-stone-500 mb-4 max-w-xl leading-relaxed">
+            Share of covered members managing at least one chronic condition. Drives event-clustering
+            in the tier-generated stochastic mode. Auto-estimated from claims after the first upload;
+            override here if you have better data (e.g. from carrier high-cost-claimant reports).
+          </p>
+          <div className="grid grid-cols-2 gap-4 items-end">
+            <Field label="Chronic Prevalence (%)">
+              <input
+                type="number"
+                min="0"
+                max="100"
+                step="0.1"
+                value={prevalencePctInput}
+                onChange={(e) => setPrevalencePctInput(e.target.value)}
+                placeholder={`${DEFAULT_CHRONIC_PREVALENCE_PCT} (default)`}
+                className="w-full bg-stone-50 border border-stone-200 rounded px-3 h-11 text-stone-900 num focus:outline-none focus:border-stone-900 font-mono"
+              />
+            </Field>
+            <div className="text-xs text-stone-500 leading-relaxed pb-2">
+              {form.chronic_prevalence_source === "manual" && prevalencePctInput
+                ? "Manual override · won't be touched on next ingestion"
+                : form.chronic_prevalence_source === "auto" && prevalencePctInput
+                ? "Auto-estimated from current claims · will refresh on next ingestion unless you override"
+                : `Default ${DEFAULT_CHRONIC_PREVALENCE_PCT}% · auto-estimates after first claims upload`}
+            </div>
+          </div>
+        </div>
+
         <div className="flex justify-end pt-2">
           <button
             disabled={!isValid}
-            onClick={() => onSave({
-              ...form,
-              current_pepm: computedPEPM,
-            })}
+            onClick={() => {
+              const trimmed = prevalencePctInput.trim();
+              const parsed = Number(trimmed);
+              const validPct = trimmed !== "" && Number.isFinite(parsed) && parsed >= 0 && parsed <= 100;
+              const initialPct = Number.isFinite(Number(initial?.chronic_prevalence))
+                ? Number(initial.chronic_prevalence) * 100
+                : null;
+              // Source becomes "manual" when the user provides a value that
+              // differs from the previously stored auto-estimate (or whenever
+              // a fresh value is entered and there was no prior value).
+              let source = form.chronic_prevalence_source;
+              let prevalence = form.chronic_prevalence;
+              if (validPct) {
+                const fraction = parsed / 100;
+                prevalence = fraction;
+                if (initialPct == null || Math.abs(parsed - initialPct) > 0.05) {
+                  source = "manual";
+                }
+              } else if (trimmed === "") {
+                // Cleared — fall back to default and let auto-estimation re-fire.
+                prevalence = undefined;
+                source = undefined;
+              }
+              onSave({
+                ...form,
+                current_pepm: computedPEPM,
+                chronic_prevalence: prevalence,
+                chronic_prevalence_source: source,
+              });
+            }}
             className="bg-stone-900 text-white px-6 h-11 rounded font-medium hover:bg-stone-800 disabled:opacity-30 disabled:cursor-not-allowed"
           >
             Save and Continue
