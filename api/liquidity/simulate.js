@@ -31,7 +31,8 @@ import {
 } from '../../src/constants.js';
 
 const DEFAULT_RUNS = 5000;
-const CACHE_VERSION = 'v3';   // bump when sim semantics change to invalidate caches
+const CACHE_VERSION = 'v4';   // bump when sim semantics change to invalidate caches
+                              // v4 (May 2026): T10 monthly-recurrence regimen + heavy-tailed synthetic
                               // v3 (May 2026): stop-loss claim payment spread (1/3 over 3 months)
                               // v2 (May 2026): chronic clustering + DPC mitigation + per-employer prevalence
 

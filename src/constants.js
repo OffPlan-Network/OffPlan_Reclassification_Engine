@@ -203,9 +203,28 @@ export const EVENT_TIER_CATALOG = [
   // T9 — Inpatient catastrophic. Rare, very heavy tail.
   { tier: 9, label: 'Inpatient catastrophic',     lambda_per_member_year: 0.003, bucket: 'E', normalized_category: 'Inpatient',         cost_dist: 'pareto',    pareto_scale: 41538, pareto_shape: 1.3, mean_cost: 180000,
     complication_probability: 0.25, complication_lag_days_median: 30, complication_lag_days_sigma: 0.9 },
-  // T10 — Specialty Rx (simplified to per-event sampling for MVP; the spec's
-  // monthly-recurrence model is deferred).
-  { tier: 10, label: 'Specialty Rx fill',         lambda_per_member_year: 0.30, bucket: 'D', normalized_category: 'Specialty Rx',       cost_dist: 'lognormal', cost_mu: 7.98,  cost_sigma: 0.6, mean_cost: 3500 },
+  // T10 — Specialty Rx (monthly-recurrence regimen per Liquidity Spec v1.2 §4).
+  // Real specialty Rx is not independent per-event sampling — chronic-disease
+  // drug regimens (Humira, Cosentyx, Tysabri, Trikafta, oral oncology) fill
+  // the same prescription monthly on the same member for the duration of
+  // their treatment. The simulator handles this via the regimen_mode branch
+  // in src/engine/stochastic.js → simulateOnceFromCatalog: it pre-samples
+  // `regimen_member_fraction × lives` members from the chronic pool at run
+  // start, then generates `fills_per_member_year` monthly events for each
+  // (cost per fill sampled independently from the log-normal so PBM /
+  // dispensing variance is captured).
+  //
+  // Expected total T10 events: 0.03 × lives × 12 = 0.36 × lives, matching
+  // the prior λ × chronic_uplift × lives = 0.384 × lives but concentrated
+  // on ~3% of the population for realistic cost clustering. Per-member
+  // annual T10 spend at mean cost: 12 × $3500 = $42K, in line with
+  // industry biologic/specialty-Rx PMPY anchors.
+  //
+  // T10 does NOT use the chronic_pool / non-chronic_pool split — the
+  // regimen-mode branch supersedes the standard Poisson sampling. T10
+  // is also removed from CHRONIC_TIER_UPLIFT for the same reason.
+  { tier: 10, label: 'Specialty Rx fill',         lambda_per_member_year: 0.30, bucket: 'D', normalized_category: 'Specialty Rx',       cost_dist: 'lognormal', cost_mu: 7.98,  cost_sigma: 0.6, mean_cost: 3500,
+    regimen_mode: 'monthly_recurrence', regimen_member_fraction: 0.03, fills_per_member_year: 12 },
   // T11 — Maternity / NICU. Simplified to single log-normal for MVP; bimodal
   // routine vs NICU treatment deferred.
   { tier: 11, label: 'Maternity / delivery',      lambda_per_member_year: 0.010, bucket: 'E', normalized_category: 'Inpatient',         cost_dist: 'lognormal', cost_mu: 9.30,  cost_sigma: 0.8, mean_cost: 15000 },
@@ -249,7 +268,11 @@ export const CHRONIC_TIER_UPLIFT = {
   6: 1.4,   // ER (low acuity) — uncontrolled flares
   7: 1.3,   // ER (high acuity)
   8: 1.7,   // Inpatient admission — chronic exacerbations
-  10: 2.0,  // Specialty Rx fill — chronic disease maintenance
+  // T10 (Specialty Rx) is NOT uplifted here — it uses the monthly-recurrence
+  // regimen model in EVENT_TIER_CATALOG instead, which concentrates fills
+  // on a 3% regimen-member subset of the chronic pool. The regimen branch
+  // in stochastic.js → simulateOnceFromCatalog supersedes the chronic-uplift
+  // pathway for T10.
 };
 
 // Chronic condition catalog — documentation-only stub today, hydrating

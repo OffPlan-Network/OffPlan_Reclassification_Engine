@@ -31,9 +31,13 @@
 // monthly-membership model absorbs chronic management and catches
 // complication early-warnings before they cascade.
 //
-// Still deferred per Liquidity Spec v1.2: the monthly-recurrence model
-// for Specialty Rx (T10) and the bimodal Maternity/NICU split (T11).
-// README §11 documents the gap.
+// T10 Specialty Rx uses the spec's monthly-recurrence model: a small
+// subset of chronic members (regimen_member_fraction = 3% of population
+// by default) is "on regimen" for the year and fills monthly. See the
+// regimen-mode branch in simulateOnceFromCatalog.
+//
+// Still deferred per Liquidity Spec v1.2: the bimodal Maternity/NICU
+// split (T11). README §11 documents the gap.
 //
 // Calibration: the timing-resample component matches deterministic residual
 // by construction (we resample the same claims). The tail overlay adds
@@ -317,7 +321,43 @@ function simulateOnceFromCatalog({ catalog, lives, scenario, lagMonths, rng, ind
   }
 
   let chronicEventCount = 0;
+  let regimenMemberCount = 0;
   for (const tier of catalog) {
+    // Regimen-mode tier (T10 specialty Rx today). Bypasses the standard
+    // chronic / non-chronic pool sampling. A small subset of chronic
+    // members is "on regimen" for the year and fills monthly; cost is
+    // sampled per fill so PBM/dispensing variance is captured. Liquidity
+    // Spec v1.2 §4 monthly-recurrence model.
+    if (tier.regimen_mode === 'monthly_recurrence' && chronicCount > 0) {
+      const fraction = Number(tier.regimen_member_fraction) || 0;
+      const fillsPerYear = Number(tier.fills_per_member_year) || 12;
+      const regimenCount = Math.min(chronicCount, Math.max(0, Math.floor(lives * fraction)));
+      regimenMemberCount += regimenCount;
+      // Regimen members are a subset of the chronic pool (indices 0..regimenCount-1).
+      // Each regimen member fills monthly; complications don't apply
+      // (Rx fills are not procedural events that cascade).
+      for (let m = 0; m < regimenCount; m++) {
+        const memberId = m;
+        for (let f = 0; f < fillsPerYear; f++) {
+          const month = Math.min(11, Math.floor((f / fillsPerYear) * 12));
+          const allowed = sampleTierCost(tier, rng);
+          const modeledCost = reduceEventAllowed(allowed, tier.bucket, scenario);
+          events.push({
+            memberId,
+            month,
+            bucket: tier.bucket,
+            category: tier.normalized_category,
+            allowed,
+            modeledCost,
+            indemnityOffset: 0,
+            stopLossAmount: 0,
+          });
+          chronicEventCount++;
+        }
+      }
+      continue;
+    }
+
     const baseLambda = Number(tier.lambda_per_member_year) || 0;
     const rawUplift = Number(CHRONIC_TIER_UPLIFT[tier.tier]) || 1;
     const effectiveUplift = 1 + (rawUplift - 1) * (1 - dpcMitigation);
@@ -427,7 +467,7 @@ function simulateOnceFromCatalog({ catalog, lives, scenario, lagMonths, rng, ind
     }
   }
 
-  return { monthlyOutflow, monthlyReimbursement, annualResidual, annualIndemnityOffset, annualStopLossShift, totalEvents, totalComplications, chronicEventCount };
+  return { monthlyOutflow, monthlyReimbursement, annualResidual, annualIndemnityOffset, annualStopLossShift, totalEvents, totalComplications, chronicEventCount, regimenMemberCount };
 }
 
 // Apply aggregate stop-loss corridor in-place: if annual residual exceeds
@@ -829,6 +869,16 @@ function simulateLiquidityTierGenerated({ employer, scenario, modeledClaims, opt
   const chronicCount = Math.round(lives * prevalence);
   const nonchronicCount = lives - chronicCount;
   const tierMultipliers = catalog.map((tier) => {
+    // Regimen-mode tiers (T10 specialty Rx) bypass the chronic-uplift +
+    // complication chain — they have a deterministic event count driven
+    // by the regimen-member subset and monthly fill schedule.
+    if (tier.regimen_mode === 'monthly_recurrence' && chronicCount > 0) {
+      const fraction = Number(tier.regimen_member_fraction) || 0;
+      const fillsPerYear = Number(tier.fills_per_member_year) || 12;
+      const regimenCount = Math.min(chronicCount, Math.max(0, Math.floor(lives * fraction)));
+      const expectedEvents = regimenCount * fillsPerYear;
+      return { tier, primaryEvents: expectedEvents, expectedEvents, effectiveUplift: 1, isRegimen: true, regimenCount };
+    }
     const rawUplift = Number(CHRONIC_TIER_UPLIFT[tier.tier]) || 1;
     const effectiveUplift = 1 + (rawUplift - 1) * (1 - dpcMitigation);
     const primaryEvents =
@@ -837,7 +887,7 @@ function simulateLiquidityTierGenerated({ employer, scenario, modeledClaims, opt
     // expected (1 + p + p² + p³) total events including itself.
     const p = (Number(tier.complication_probability) || 0) * (1 - dpcMitigation);
     const chainFactor = 1 + p + p * p + p * p * p;
-    return { tier, primaryEvents, expectedEvents: primaryEvents * chainFactor, effectiveUplift };
+    return { tier, primaryEvents, expectedEvents: primaryEvents * chainFactor, effectiveUplift, isRegimen: false };
   });
 
   let expectedAnnualCashFlow = 0;
@@ -866,6 +916,7 @@ function simulateLiquidityTierGenerated({ employer, scenario, modeledClaims, opt
   let totalEvents = 0;
   let totalComplications = 0;
   let totalChronicEvents = 0;
+  let totalRegimenMembers = 0;
   let totalAggregateRecovery = 0;
   let runsTriggeringAggregate = 0;
 
@@ -875,6 +926,7 @@ function simulateLiquidityTierGenerated({ employer, scenario, modeledClaims, opt
     totalEvents += r.totalEvents;
     totalComplications += r.totalComplications;
     totalChronicEvents += r.chronicEventCount;
+    totalRegimenMembers += r.regimenMemberCount;
     for (let t = 0; t < 12; t++) {
       monthlyOutflowSum += r.monthlyOutflow[t];
       monthlyOutflowCount++;
@@ -971,6 +1023,22 @@ function simulateLiquidityTierGenerated({ employer, scenario, modeledClaims, opt
           effective_uplift: effectiveUplift,
         })),
     },
+    regimens: {
+      tiers: tierMultipliers
+        .filter(({ isRegimen }) => isRegimen)
+        .map(({ tier, regimenCount, expectedEvents }) => {
+          const meanCost = tier.mean_cost ?? estimateTierMean(tier);
+          return {
+            tier: tier.tier,
+            label: tier.label,
+            mode: tier.regimen_mode,
+            members_per_run: regimenCount,
+            fills_per_member: Number(tier.fills_per_member_year) || 12,
+            expected_events_per_year: expectedEvents,
+            expected_annual_spend: expectedEvents * meanCost,
+          };
+        }),
+    },
     aggregate_stop_loss: scenario?.aggregate_stop_loss_enabled
       ? {
           enabled: true,
@@ -993,7 +1061,7 @@ function simulateLiquidityTierGenerated({ employer, scenario, modeledClaims, opt
       horizon_months: 12,
       lag_months: lagMonths,
       seed,
-      method: 'tier-generated-v4',
+      method: 'tier-generated-v5',
       catalog_length: catalog.length,
       generated_at: new Date().toISOString(),
     },
