@@ -102,7 +102,7 @@ export function DashboardScreen({ employer, scenario, result, classifiedClaims, 
           <div>
             <strong>Prototype scope: deterministic classification + stochastic MRL with tail overlay.</strong>
             <div className="mt-1 leading-relaxed">
-              This build produces the residual fund and the OffPlan stack PEPM (deterministic), plus a Monte Carlo Min Required Liquidity that combines timing variance over the deterministic claims with a Pareto-distributed catastrophic event overlay. We take the P95 of max cumulative drawdown across 1,000 runs. Still deferred per Liquidity Spec v1.2: chronic clustering, complication lag, NegBin frequency, aggregate stop-loss corridor, bootstrap confidence intervals on percentiles. The MRL is calibrated to spec-anchored numbers but should still be treated as a directional CFO conversation tool, not as an MGU underwriting submission. The "Risk Margin × Residual" formula in §6.6 of the spec is the deprecated v3.0/v3.1 funding construct retained as an intermediate placeholder.
+              This build produces the residual fund and the OffPlan stack PEPM (deterministic), plus a Monte Carlo Min Required Liquidity in either timing-resample mode (resamples deterministic claims + Pareto catastrophic tail overlay) or tier-generated mode (events generated fresh from the 11-tier catalog with Poisson/NegBin frequency, run through the full member-aggregating cascade with indemnity offset and aggregate stop-loss corridor). We take the P95 of max cumulative drawdown across the run set, with bootstrap 95% confidence intervals on every reported percentile and complication probability + lag for tiers that ship them. Still deferred per Liquidity Spec v1.2: chronic_flag-driven event clustering, the Specialty Rx (T10) monthly-recurrence model, and the bimodal Maternity/NICU (T11) split. The MRL is calibrated to spec-anchored numbers but should still be treated as a directional CFO conversation tool, not as an MGU underwriting submission. The "Risk Margin × Residual" formula in §6.6 of the spec is the deprecated v3.0/v3.1 funding construct retained as an intermediate placeholder.
             </div>
           </div>
         </div>
@@ -300,11 +300,12 @@ export function DashboardScreen({ employer, scenario, result, classifiedClaims, 
               </>
             ) : (
               <>
-                Generates events fresh per run from {liquidity.meta.catalog_length}-tier catalog (Poisson frequency × log-normal/Pareto cost).
-                Uses simplified per-event OffPlan transformation (skips indemnity offset and member-aggregate stop-loss split — those are why drift exists).
+                Generates events fresh per run from {liquidity.meta.catalog_length}-tier catalog (Poisson/NegBin frequency × log-normal/Pareto cost),
+                run through the full member-aggregating cascade (indemnity offset → member-aggregate stop-loss split → aggregate corridor).
+                Drift_pct vs the deterministic residual reflects event-mix differences from the catalog defaults, not transformation gaps.
               </>
             )}
-            {' '}Chronic clustering, complication lag, NegBin frequency for over-dispersed tiers, and aggregate stop-loss are still deferred
+            {' '}Chronic_flag-driven event clustering, the Specialty Rx (T10) monthly-recurrence model, and the bimodal Maternity/NICU (T11) split are still deferred
             (see README §11). Use this as a directional CFO conversation anchor, not MGU underwriting input.
             Production replaces this with the full Liquidity Spec v1.2 stochastic layer.
           </div>

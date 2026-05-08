@@ -1,25 +1,27 @@
 // Stochastic liquidity layer — Monte Carlo to size the employer's Min
 // Required Liquidity (MRL) under the OffPlan model.
 //
-// Two stochastic dimensions ship in this build:
+// Two simulation modes ship, surfaced as a Dashboard toggle:
 //
-//   1. Timing variance (v0). Each modeled claim from the deterministic
-//      cascade is placed on a uniform-random month; stop-loss reimbursement
-//      arrives 3 months after the claim hits.
+//   - timing-resample (default): resamples the deterministic claims onto
+//     random months, plus a Pareto catastrophic event tail overlay so the
+//     output is not bounded by the catastrophic events that happened to
+//     land in the historical year.
 //
-//   2. Catastrophic event tail overlay (v1). Each run draws
-//      N ~ Poisson(lambda × covered_lives) extra catastrophic events on
-//      top of the deterministic claims. Each event has random month and
-//      Pareto-distributed cost; the cost is split at the scenario's stop-
-//      loss attachment point and reimbursement lags by the same window.
-//      Without this, simulator output is a *lower bound* on MRL because it
-//      only knows about the catastrophic events that actually happened in
-//      the deterministic year. With it, P95 widens to reflect population-
-//      level tail risk.
+//   - tier-generated (v2): generates events fresh per run from the 11-tier
+//     EVENT_TIER_CATALOG (Poisson/NegBin frequency × log-normal/Pareto
+//     cost), runs them through the full member-aggregating cascade
+//     (per-event reduction → indemnity offset → member-aggregate stop-loss
+//     split), and reports a calibration drift_pct vs the deterministic
+//     residual.
 //
-// Still deferred: chronic clustering, complication lag, NegBin frequency,
-// aggregate stop-loss corridor, bootstrap CIs on percentiles. README §11
-// documents the gap.
+// Both modes apply: 3-month specific stop-loss reimbursement lag,
+// aggregate stop-loss corridor (when enabled in scenario), bootstrap 95%
+// CIs on every reported percentile.
+//
+// Still deferred per Liquidity Spec v1.2: chronic_flag-driven event
+// clustering, the monthly-recurrence model for Specialty Rx (T10), and
+// the bimodal Maternity/NICU split (T11). README §11 documents the gap.
 //
 // Calibration: the timing-resample component matches deterministic residual
 // by construction (we resample the same claims). The tail overlay adds

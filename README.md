@@ -2,7 +2,7 @@
 
 An interactive, single-page React demo of the **OffPlan Claims Reclassification Engine**: a five-stage classification cascade that takes an employer's historical healthcare claims, reclassifies every dollar under the OffPlan architecture (DPC eliminated → cash-pay repriced → indemnity offset → stop-loss shifted → residual funded), and surfaces the resulting employer-cost story.
 
-This codebase is the **deterministic classification layer** plus a **timing-resample MVP of the stochastic capital layer** of the engine described in `docs/01_OffPlan_Engine_Master_Specification_v33.docx` and `docs/06_OffPlan_Engine_Liquidity_Capital_Modeling_Spec_v12.docx`. The full stochastic build (heavy-tail event variance, chronic clustering, bootstrap CIs) is not yet shipped — see §11 for the per-metric status.
+This codebase is the **deterministic classification layer** plus a **two-mode stochastic capital layer** (timing-resample + tier-generated v2) of the engine described in `docs/01_OffPlan_Engine_Master_Specification_v33.docx` and `docs/06_OffPlan_Engine_Liquidity_Capital_Modeling_Spec_v12.docx`. Heavy-tail Pareto events, NegBin frequency for over-dispersed tiers, complication probability + lag, aggregate stop-loss corridor, and bootstrap 95% CIs on every percentile are all live; chronic_flag-driven clustering and the T10/T11 spec refinements remain deferred — see §11 for the per-metric status.
 
 The companion docs in `docs/` are the authoritative spec; this README is the operator-facing summary of how the running app implements them.
 
@@ -406,26 +406,27 @@ The catalog has 11 tiers per Spec v1.2 §4 (T1 primary care through T11 maternit
 | Capital Efficiency Ratio (CER = ELF / MRL) | **Computed**          |
 | Liquidity Reduction percentage (1 − MRL/ELF) | **Computed**        |
 | Liquidity Coverage Ratio (LCR), Stress Coverage Ratio (SCR) | **Computed** |
-| P50 / P75 / P90 / P95 / P99 of max cumulative drawdown | **Computed** — single-pass percentiles, no bootstrap CI yet |
+| P50 / P75 / P90 / P95 / P99 of max cumulative drawdown | **Computed** — with bootstrap 95% CIs (500 resamples) on every percentile |
 | Replenishment-aware Net Drawdown | **Computed** — monthly contribution = annual cash flow / 12 |
 | Reimbursement-lag Pre-Reimbursement Outflow | **Computed** — fixed 3-month lag (75-day approximation) |
 | Heavy-tail Pareto for inpatient catastrophic events | **Computed** — overlay in timing-resample (default λ=0.005/member-yr, scale=$50K, shape=1.5); native to T8/T9 in tier-generated |
 | Full 11-tier event catalog with per-tier Poisson frequencies | **Computed** — `EVENT_TIER_CATALOG` in `src/constants.js` is the v2 mode's source of truth |
 | Calibration drift indicator | **Computed** — drift_pct + out_of_band flag returned per simulation; UI banner fires at ±10% |
-| NegBin frequency for over-dispersed tiers | **Not modeled** — Poisson only for T8 currently |
-| Per-event indemnity offset in tier-generated mode | **Not modeled** — drift-pct partially reflects this gap |
-| Member-aggregate stop-loss split in tier-generated mode | **Not modeled** — per-event split overstates recovery slightly |
-| Aggregate stop-loss corridor | **Not modeled** |
-| Chronic clustering / complication lag (Spec v1.2 §4.1) | **Not modeled** — `chronic_flag` is set in synthetic data but doesn't drive event clustering |
-| Bootstrap confidence intervals on percentiles | **Not computed** — single-run percentiles only |
+| NegBin frequency for over-dispersed tiers | **Computed** — T8 (inpatient) uses NegBin via Gamma-Poisson mixture; other tiers remain Poisson |
+| Indemnity offset in tier-generated mode | **Computed** — applies the same per-member per-event-type benefit caps the deterministic cascade uses |
+| Member-aggregate stop-loss split in tier-generated mode | **Computed** — events grouped by member, overage drained from largest claims |
+| Aggregate stop-loss corridor | **Computed** — opt-in via scenario flag; reimburses excess residual at month 11 when annual residual breaches `expected × attachment_pct` |
+| Complication probability + lag (Spec v1.2 §4.1, partial) | **Computed** — tiers 5–9 roll for a complication on the same member with log-normal lag; depth-capped at 3 |
+| Chronic_flag-driven event clustering (Spec v1.2 §4.1, remaining) | **Not modeled** — `chronic_flag` is set in synthetic data but doesn't drive event clustering |
+| Bootstrap confidence intervals on percentiles | **Computed** — 500-resample bootstrap with derived seed; surfaces 2.5%/97.5% bounds on P50/P75/P90/P95/P99 |
 | Spec v1.2 monthly-recurrence model for Specialty Rx (T10) | **Not modeled** — collapsed to per-event sampling for MVP |
 | Spec v1.2 bimodal Maternity/NICU split (T11) | **Not modeled** — single log-normal for MVP |
 
 **Where the overlay lands in calibration.** ABC Manufacturing at the Expected preset — MRL ≈ $280K, CER ≈ 5.5×, P99 ≈ $750K. Translating to PEPM-equivalent: MRL/lives/12 ≈ $144 PEPM, which sits between the Spec v1.2 worked example anchor ($115 PEPM) and the deterministic baseline ($85 PEPM residual + ~$130 stop-loss = $215 PEPM annual run-rate). Riverdale and XYZ produce comparable PEPM-equivalents under the same overlay. The overlay's λ is the single calibration knob; lower λ shifts the simulator back toward "this employer's actual claims" and higher λ toward "any plausible employer of this size."
 
-**What the overlay does NOT model.** Chronic-flagged member event clustering, complication probability + lag, and negative-binomial over-dispersion would each push P95 higher (per Spec v1.2 §4.1 the combined effect is +6–10% in chronic-heavy populations). For populations with above-average chronic prevalence, the current MRL is still a slight under-estimate — but no longer a wholesale "lower bound" the way the v0 timing-only build was.
+**What the overlay still does NOT model.** Chronic_flag-driven member event clustering would push P95 higher in chronic-heavy populations (per Spec v1.2 §4.1 the residual chronic-clustering contribution is roughly +3–5% on P95 once complication lag and NegBin over-dispersion are already in the model — those two pieces have shipped). For populations with above-average chronic prevalence, the current MRL remains a slight under-estimate, but the gap is narrower than the v0/v1 builds.
 
-**Bottom line for stakeholders:** this build produces a directional MRL number anchored to spec-equivalent values (CER 4–7× across the demos, P99 in the right order of magnitude for SMB populations). It supports CFO conversations and prospect demos. It is **not yet** sufficient as an MGU underwriting submission — that requires the full tier catalog, chronic clustering, complication lag, aggregate stop-loss, and bootstrap CIs that the v2 build will add.
+**Bottom line for stakeholders:** this build produces a directional MRL number anchored to spec-equivalent values (CER 4–7× across the demos, P99 in the right order of magnitude for SMB populations) with bootstrap CIs that surface percentile uncertainty. It supports CFO conversations and prospect demos. It is **not yet** sufficient as an MGU underwriting submission — that step still requires chronic_flag-driven clustering and the T10/T11 spec refinements.
 
 ---
 
