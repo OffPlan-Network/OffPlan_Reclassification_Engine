@@ -252,6 +252,80 @@ export const CHRONIC_TIER_UPLIFT = {
   10: 2.0,  // Specialty Rx fill — chronic disease maintenance
 };
 
+// Chronic condition catalog — documentation-only stub today, hydrating
+// surface tomorrow.
+//
+// Chronicity itself is not what drives MRL; *expensive* chronicity is.
+// Hypertension on a generic ACE inhibitor is cheap. Psoriatic arthritis
+// on Cosentyx is $60K/yr. Crohn's on Remicade plus periodic admissions
+// is $80K+/yr. Hemophilia with factor concentrates is $200K-$500K/yr.
+// The dictionary distinguishes these so the simulator can ultimately
+// weight chronic uplift by per-condition cost band.
+//
+// Today: synthetic claim records do not carry ICD-10 codes, so the
+// catalog cannot match against incoming claims. estimateChronicPrevalence
+// in src/engine/calibration.js uses a utilization-pattern heuristic
+// (multi-criterion, any 2 of 3) instead. The structure below is the
+// hydrating surface for when real claims data with diagnosis codes
+// arrives.
+//
+// Production wiring (TODO when ICD-10 codes land on claim records):
+//   1. Add icd10ToCondition(code) lookup in calibration.js using icd10_prefixes
+//   2. Implement identifyExpensiveChronicMembers() to match per-claim ICD-10
+//      against this catalog and produce per-member condition profiles
+//   3. Surface "expensive chronic share" alongside overall prevalence
+//      in the chronic_clustering result block
+//   4. Optional: per-condition uplift weights replacing the flat
+//      CHRONIC_TIER_UPLIFT — high-cost autoimmune drives T10 specialty
+//      Rx differently than HTN drives T2 specialty consults
+//
+// Cost-band methodology:
+//   low     — generics + routine monitoring; sub-$2K incremental annual cost
+//   medium  — brand Rx + occasional specialist + admit risk; $2K-$15K/yr
+//   high    — biologics, dialysis, immunosuppressants, oncology; $25K+/yr
+//
+// References for icd10_prefix mappings: CMS HCC categories, CMS Chronic
+// Conditions Warehouse (CCW) flags. Coverage is illustrative, not
+// exhaustive — production should expand from CMS HCC v24 list.
+export const CHRONIC_CONDITION_CATALOG = [
+  // ----- Low-cost chronic (generics, routine monitoring) -----
+  { id: 'htn',           name: 'Hypertension',                      icd10_prefixes: ['I10','I11','I12','I13','I15'], cost_band: 'low',    expensive: false, notes: 'ACE/ARB/CCB/diuretic generics; quarterly visits' },
+  { id: 'dm2',           name: 'Type 2 diabetes',                   icd10_prefixes: ['E11'],                          cost_band: 'low',    expensive: false, notes: 'Metformin/SU generics; A1c monitoring. Insulin-dependent shifts to medium' },
+  { id: 'hypothyroid',   name: 'Hypothyroidism',                    icd10_prefixes: ['E03'],                          cost_band: 'low',    expensive: false, notes: 'Generic levothyroxine; annual TSH' },
+  { id: 'hyperlipidemia',name: 'Hyperlipidemia',                    icd10_prefixes: ['E78'],                          cost_band: 'low',    expensive: false, notes: 'Statin generics' },
+  { id: 'gerd',          name: 'GERD',                              icd10_prefixes: ['K21'],                          cost_band: 'low',    expensive: false, notes: 'PPI generics' },
+  { id: 'asthma',        name: 'Asthma (mild persistent)',          icd10_prefixes: ['J45'],                          cost_band: 'low',    expensive: false, notes: 'Generic ICS; brand inhalers shift to medium' },
+  { id: 'depression',    name: 'Depression',                        icd10_prefixes: ['F32','F33'],                    cost_band: 'low',    expensive: false, notes: 'Generic SSRIs; therapy may shift cost' },
+  { id: 'anxiety',       name: 'Anxiety',                           icd10_prefixes: ['F40','F41'],                    cost_band: 'low',    expensive: false, notes: 'Generic SSRIs/benzos' },
+  { id: 'lbp',           name: 'Low back pain (chronic)',           icd10_prefixes: ['M54'],                          cost_band: 'low',    expensive: false, notes: 'PT/NSAIDs typical; surgery shifts to high one-time' },
+  { id: 'osteoarthritis',name: 'Osteoarthritis',                    icd10_prefixes: ['M15','M16','M17','M18','M19'],  cost_band: 'low',    expensive: false, notes: 'NSAIDs/PT; joint replacement shifts to high one-time' },
+
+  // ----- Medium-cost chronic (brand Rx, frequent specialist, admit risk) -----
+  { id: 'copd',          name: 'COPD',                              icd10_prefixes: ['J44'],                          cost_band: 'medium', expensive: false, notes: 'Brand inhalers + ER risk for exacerbations' },
+  { id: 'chf',           name: 'Congestive heart failure',          icd10_prefixes: ['I50'],                          cost_band: 'medium', expensive: false, notes: 'Multiple Rx + admit risk; advanced CHF (LVADs, transplant) high' },
+  { id: 'cad',           name: 'Coronary artery disease',           icd10_prefixes: ['I20','I25'],                    cost_band: 'medium', expensive: false, notes: 'Antiplatelet/statin; revascularization episodes high one-time' },
+  { id: 'osa',           name: 'Sleep apnea',                       icd10_prefixes: ['G47.33'],                       cost_band: 'medium', expensive: false, notes: 'CPAP + sleep studies' },
+  { id: 'migraine',      name: 'Chronic migraine',                  icd10_prefixes: ['G43'],                          cost_band: 'medium', expensive: false, notes: 'CGRP antagonists (Aimovig/Emgality) shift to high' },
+  { id: 'dm1',           name: 'Type 1 diabetes',                   icd10_prefixes: ['E10'],                          cost_band: 'medium', expensive: false, notes: 'Insulin + CGM/pump; pump+CGM combo can shift to high' },
+  { id: 'epilepsy',      name: 'Epilepsy',                          icd10_prefixes: ['G40'],                          cost_band: 'medium', expensive: false, notes: 'Brand AEDs + monitoring' },
+
+  // ----- High-cost chronic (biologics, specialty Rx, dialysis, oncology) -----
+  { id: 'ra',            name: 'Rheumatoid arthritis',              icd10_prefixes: ['M05','M06'],                    cost_band: 'high',   expensive: true,  notes: 'Biologics (Humira/Enbrel/Rinvoq) $50K-$70K/yr' },
+  { id: 'psoriatic',     name: 'Psoriatic arthritis / psoriasis',   icd10_prefixes: ['L40'],                          cost_band: 'high',   expensive: true,  notes: 'Biologics (Cosentyx/Stelara/Skyrizi) $60K-$80K/yr' },
+  { id: 'crohns',        name: "Crohn's disease",                   icd10_prefixes: ['K50'],                          cost_band: 'high',   expensive: true,  notes: 'Biologics + admit risk $60K-$100K/yr' },
+  { id: 'uc',            name: 'Ulcerative colitis',                icd10_prefixes: ['K51'],                          cost_band: 'high',   expensive: true,  notes: 'Biologics $60K-$90K/yr' },
+  { id: 'ms',            name: 'Multiple sclerosis',                icd10_prefixes: ['G35'],                          cost_band: 'high',   expensive: true,  notes: 'DMTs (Tysabri/Ocrevus/Kesimpta) $75K-$100K/yr' },
+  { id: 'lupus',         name: 'Systemic lupus',                    icd10_prefixes: ['M32'],                          cost_band: 'high',   expensive: true,  notes: 'Biologics (Benlysta) + monitoring $40K-$70K/yr' },
+  { id: 'cancer_active', name: 'Active oncology treatment',         icd10_prefixes: ['C'],                            cost_band: 'high',   expensive: true,  notes: 'Wide range $30K-$500K+/yr depending on regimen + immunotherapy' },
+  { id: 'esrd',          name: 'ESRD / dialysis',                   icd10_prefixes: ['N18.6'],                        cost_band: 'high',   expensive: true,  notes: 'Dialysis $90K+/yr; Medicare-eligible after 30 mo for most' },
+  { id: 'cf',            name: 'Cystic fibrosis',                   icd10_prefixes: ['E84'],                          cost_band: 'high',   expensive: true,  notes: 'Trikafta $300K/yr' },
+  { id: 'hiv',           name: 'HIV',                               icd10_prefixes: ['B20'],                          cost_band: 'high',   expensive: true,  notes: 'ART regimens $30K-$50K/yr' },
+  { id: 'hemophilia',    name: 'Hemophilia',                        icd10_prefixes: ['D66','D67'],                    cost_band: 'high',   expensive: true,  notes: 'Factor concentrates $200K-$500K+/yr; gene therapy seven-figure one-time episode' },
+  { id: 'transplant',    name: 'Solid organ transplant maintenance',icd10_prefixes: ['Z94'],                          cost_band: 'high',   expensive: true,  notes: 'Lifetime immunosuppressants + monitoring; episode itself catastrophic' },
+  { id: 'hep_c',         name: 'Hepatitis C (active treatment)',    icd10_prefixes: ['B17.1','B18.2'],                cost_band: 'high',   expensive: true,  notes: 'Mavyret/Epclusa $25K-$40K curative episode (one-time)' },
+  { id: 'sickle_cell',   name: 'Sickle cell disease',               icd10_prefixes: ['D57'],                          cost_band: 'high',   expensive: true,  notes: 'Crizanlizumab/Voxelotor + admit risk; gene therapy $2M+ episodic' },
+];
+
 // Catastrophic-event tail overlay parameters for the stochastic liquidity
 // layer. Each Monte Carlo run draws N ~ Poisson(lambda × covered_lives)
 // extra catastrophic events on top of the resampled deterministic claims.

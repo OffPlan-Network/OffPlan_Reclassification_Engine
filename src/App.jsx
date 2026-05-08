@@ -261,17 +261,27 @@ export default function App() {
     await db.set(`claims:${employerId}`, classified);
 
     // Auto-calibrate chronic prevalence from the freshly classified claims,
-    // unless the user has manually overridden it. Stamps source='auto' so we
-    // know the value can be refreshed on the next ingestion.
+    // unless the user has manually overridden it. The estimator returns null
+    // when its heuristic produces an implausible value (outside the CDC
+    // working-age band) — typically a synthetic-data artifact. In that case
+    // we clear any prior auto-stamped value so the engine cleanly falls back
+    // to the population default, rather than carrying stale data forward.
     const employerForCalibration = await db.get(`employer:${employerId}`);
     if (employerForCalibration && employerForCalibration.chronic_prevalence_source !== 'manual') {
       const estimated = estimateChronicPrevalence(classified.filter((c) => !c.excluded));
+      let updated = null;
       if (estimated != null) {
-        const updated = {
+        updated = {
           ...employerForCalibration,
           chronic_prevalence: estimated,
           chronic_prevalence_source: 'auto',
         };
+      } else if (employerForCalibration.chronic_prevalence_source === 'auto') {
+        // Heuristic returned null (signal implausible) — clear the stale auto value.
+        const { chronic_prevalence: _drop1, chronic_prevalence_source: _drop2, ...rest } = employerForCalibration;
+        updated = rest;
+      }
+      if (updated) {
         await db.set(`employer:${employerId}`, updated);
         if (activeEmployerId === employerId) setActiveEmployer(updated);
       }
@@ -328,7 +338,8 @@ export default function App() {
           member_relationship: i % 3 === 0 ? "spouse" : i % 5 === 0 ? "child" : "employee",
           member_age: 25 + ((i * 7) % 45),
           member_gender: i % 2 === 0 ? "M" : "F",
-          chronic_flag: c.bucket === "E" || (c.allowed_amount || 0) > 5000,
+          // chronic_flag now stamped by the generator (top utilization-weight quantile);
+          // spread above preserves it. No post-hoc heuristic.
           state: employer.state,
         }));
         meta = {

@@ -50,7 +50,9 @@ const cases = [
 for (const c of cases) {
   const result = withSeed(c.seed, () => generateSyntheticClaims(c.lives, c.spend));
 
-  // Same enrichment App.jsx applied at runtime for synthetic_full demos.
+  // Same enrichment App.jsx applies at runtime for synthetic_full demos.
+  // chronic_flag is stamped by the generator (top utilization-weight quantile)
+  // and the spread preserves it; no post-hoc heuristic override.
   const enriched = result.claims.map((claim, i) => ({
     ...claim,
     employer_id: c.employerId,
@@ -58,7 +60,6 @@ for (const c of cases) {
     member_relationship: i % 3 === 0 ? 'spouse' : i % 5 === 0 ? 'child' : 'employee',
     member_age: 25 + ((i * 7) % 45),
     member_gender: i % 2 === 0 ? 'M' : 'F',
-    chronic_flag: claim.bucket === 'E' || (claim.allowed_amount || 0) > 5000,
     state: c.state,
   }));
 

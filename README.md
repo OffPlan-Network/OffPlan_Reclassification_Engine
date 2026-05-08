@@ -270,47 +270,47 @@ current_total_healthcare_spend = $1,525,000   (self-funded total plan cost — ~
                                               Source-of-Truth doc Section 6)
 ```
 
-Frozen demo JSON (`public/data/demo_abc_manufacturing_claims.json`) contains 1,758 deterministic claim lines totaling $983,370 — within rounding of the $985K nominal claims target. Because the demo file is seeded, the math is reproducible across runs.
+Frozen demo JSON (`public/data/demo_abc_manufacturing_claims.json`) contains 1,758 deterministic claim lines totaling $950,335 — within rounding of the $950K nominal claims target. Because the demo file is seeded, the math is reproducible across runs. The May 2026 generator update redistributed claims along a log-normal utilization curve (per-member spend now heavy-tailed: top 5% own ~49% of non-routine spend), which is what produces the realistic chronic_flag stamping and the auto-estimated 30.2% chronic prevalence.
 
 ### 8.1 Bucket distribution (after `normalizeAndClassify`)
 
 |        | Claims | Σ allowed | Share of historical |
 |---     |---:    |---:       |---:                 |
-| **A** Primary care, lab, prevention | 1,067 | $114,443 | 11.6 % |
-| **B** Specialty, imaging, ASC, urgent care | 552 | $415,450 | 42.2 % |
-| **C** ER | 42 | $75,623 | 7.7 % |
-| **D** Specialty Rx + Other | 90 | $160,961 | 16.4 % |
-| **E** Inpatient (catastrophic) | 7 | $216,893 | 22.1 % |
-| **Total** | **1,758** | **$983,370** | 100.0 % |
+| **A** Primary care, lab, prevention | 1,067 | $113,963 | 12.0 % |
+| **B** Specialty, imaging, ASC, urgent care | 552 | $413,649 | 43.5 % |
+| **C** ER | 42 | $69,516 | 7.3 % |
+| **D** Specialty Rx + Other | 90 | $160,747 | 16.9 % |
+| **E** Inpatient (catastrophic) | 7 | $192,460 | 20.3 % |
+| **Total** | **1,758** | **$950,335** | 100.0 % |
 
 ### 8.2 Cascade output, all three presets
 
-Each row below is `runCalculation()` actually executed against the seeded JSON. The conservation invariant (§4.7) holds exactly — every cascade output sums to $983,370 with $0 drift.
+Each row below is `runCalculation()` actually executed against the seeded JSON. The conservation invariant (§4.7) holds exactly — every cascade output sums to $950,335 with $0 drift.
 
 |                              | Conservative | **Expected** | Aggressive |
 |---                           |---:          |---:          |---:        |
-| DPC eliminated               | $80,110      | $97,277      | $108,721   |
-| Repricing savings (B)        | $229,406     | $236,085     | $239,711   |
-| ER reduction (C)             | $7,562       | $18,906      | $30,249    |
-| Indemnity offset             | $104,736     | $103,608     | $101,252   |
-| Stop-loss shift              | $205,485     | $254,948     | $254,544   |
-| **Residual fund**            | **$356,070** | **$272,547** | **$248,893** |
-| Residual PEPM                | $183.16      | $140.20      | $128.03    |
-| Funding × `risk_margin` †    | $256.43      | $175.25      | $140.83    |
-| **Total OffPlan PEPM**       | **$668.63**  | **$557.45**  | **$508.03** |
-| Total OffPlan Annual         | $1,299,815   | $1,083,680   | $987,619   |
-| **Net Annual Savings**       | **+$225,185** | **+$441,320** | **+$537,381** |
-| As % of current total spend  | +14.8 %      | +28.9 %      | +35.2 %    |
+| DPC eliminated               | $79,774      | $96,869      | $108,265   |
+| Repricing savings (B)        | $225,462     | $232,339     | $236,073   |
+| ER reduction (C)             | $6,952       | $17,379      | $27,806    |
+| Indemnity offset             | $115,641     | $113,792     | $110,442   |
+| Stop-loss shift              | $23,479      | $53,471      | $52,705    |
+| **Residual fund**            | **$499,027** | **$436,485** | **$415,044** |
+| Residual PEPM                | $256.70      | $224.53      | $213.50    |
+| Funding × `risk_margin` †    | $359.38      | $280.66      | $234.85    |
+| **Total OffPlan PEPM**       | **$771.58**  | **$662.86**  | **$602.05** |
+| Total OffPlan Annual         | $1,499,955   | $1,288,604   | $1,170,385 |
+| **Net Annual Savings**       | **+$25,045** | **+$236,396** | **+$354,615** |
+| As % of current total spend  | +1.6 %       | +15.5 %      | +23.3 %    |
 
 † Deprecated v3.0/v3.1 placeholder. `Total OffPlan PEPM = $282.20 fixed overhead (membership + PBM + FirstHealth + MedWatch + Accident/Indemnity + TPA) + scenario.stop_loss_pepm + (residual_pepm × risk_margin)`. Replaced by stochastic Min Required Liquidity in the spec; not yet computed here. See §6, §11, and the calibration note at the end of §8.3.
 
-The Expected funding × `risk_margin` of **$175.25 PEPM** sits within the Source-of-Truth doc's $140–$240 range with $200 PMPM working anchor (Section 3). Combined with the $382.20 fixed + stop-loss subtotal, Expected lands at **$557.45 PEPM** — within $25 of the doc's $582.20 all-in anchor.
+The Expected funding × `risk_margin` of **$280.66 PEPM** sits at the upper edge of the Source-of-Truth doc's $140–$240 working range (Section 3). Combined with the $382.20 fixed + stop-loss subtotal, Expected lands at **$662.86 PEPM** — above the doc's $582.20 all-in anchor by ~14 %, reflecting that the heavy-tailed synthetic generator (introduced May 2026) now produces a larger employer-funded residual than the prior uniform-distribution generator did. The doc's anchor itself was calibrated against the older numbers; expect the next anchor refresh in §6 to track the realistic concentration.
 
 ### 8.3 Reading the result
 
-Under the **Expected** preset, ABC delivers **+$441K (28.9 %)** of annual savings vs the $1.525M current total — driven primarily by cash-pay repricing on Bucket B (**$236K** of savings, ~57 % compression on the $415K of Bucket-B allowed) and the structural shift of catastrophic dollars into the stop-loss layer (**$255K**). DPC absorbs another **$97K**; indemnity offsets **$104K** of mid-acuity event cost. **Conservative** still produces +$225K (+14.8 %) — pessimistic stop-loss premium ($130 PEPM) plus maximum 1.40× risk-margin amplification compress the savings but no longer flip them red against an industry-benchmark baseline. **Aggressive** produces **+$537K (+35.2 %)**.
+Under the **Expected** preset, ABC delivers **+$236K (15.5 %)** of annual savings vs the $1.525M current total — driven primarily by cash-pay repricing on Bucket B (**$232K** of savings, ~56 % compression on the $414K of Bucket-B allowed) and indemnity offset on mid-acuity events (**$114K**). DPC absorbs another **$97K**. Stop-loss shift is comparatively small (**$53K**) because the heavy-tailed member distribution concentrates non-routine claims on ~30 % of the population — only the top utilizers cross the $50K member-aggregate attachment, and most of the per-member cost stays as employer residual. **Aggressive** widens to **+$355K (+23.3 %)**. **Conservative essentially breaks even at +$25K (+1.6 %)** — the combination of the $130 PEPM stop-loss premium, the 1.40× risk-margin amplification on a now-larger residual, and the $75K Conservative attachment (which keeps even more spend out of stop-loss) compresses the margin to roughly run-rate parity. This is a more realistic Conservative outcome than the prior +14.8 % under the uniform-distribution generator, which understated employer residual exposure.
 
-This savings range — Conservative +14.8 %, Expected +28.9 %, Aggressive +35.2 % — tracks the Source-of-Truth doc's Section 6 Year-1 trend: traditional self-funded $785 PEPM vs OffPlan all-in $582 PEPM = ~26 % savings.
+This savings range — Conservative +1.6 %, Expected +15.5 %, Aggressive +23.3 % — tracks the realistic OffPlan story for a chronic-mix population: meaningful but not dramatic run-rate savings under realistic underwriting, with the headline Capital Efficiency story coming from the stochastic layer (§11) where MRL is roughly one-fifth of Equivalent Level-Funded Reserve.
 
 The mechanics line up with how the OffPlan transformation is supposed to work: the cash-pay network attacks specialty / imaging / ASC pricing at the 200–300 % of Medicare reality it sits at, compressing 40–55 %; DPC absorbs predictable primary-care and chronic-management dollars; structured indemnity caps employer exposure on triggering events; specific stop-loss carries the catastrophic tail. The result is meaningful run-rate savings across all three input modes — see the cross-case table below.
 
@@ -324,11 +324,11 @@ The cascade was also run for XYZ Construction (Mode 2, level-funded) and Riverda
 
 |                          | Lives | Σ allowed   | Total OffPlan Annual | Current Total | Net Savings   |
 |---                       |---:   |---:         |---:                  |---:           |---:           |
-| ABC Manufacturing        | 162   | $983,370    | $987,619             | $1,525,000    | **+$537,381** (+35.2 %) |
-| XYZ Construction         | 98    | $540,000    | $569,107             | $840,000      | **+$270,893** (+32.2 %) |
-| Riverdale Hospitality    | 205   | $1,109,446  | $1,359,256           | $2,400,000    | **+$1,040,744** (+43.4 %) |
+| ABC Manufacturing        | 162   | $950,335    | $1,170,385           | $1,525,000    | **+$354,615** (+23.3 %) |
+| XYZ Construction         | 98    | $540,000    | $569,147             | $840,000      | **+$270,853** (+32.2 %) |
+| Riverdale Hospitality    | 205   | $1,060,541  | $1,357,281           | $2,400,000    | **+$1,042,719** (+43.4 %) |
 
-Under **Expected**, all three demos produce strong savings (ABC +28.9 %, XYZ +23.7 %, Riverdale +37.9 %). Under **Aggressive**, savings widen to +32 %–+43 %. Under **Conservative** — $130 PEPM stop-loss premium, maximum 1.40× risk-margin amplification, and minimum DPC absorption stacked together — all three remain positive (ABC +14.8 %, XYZ +10.6 %, Riverdale +24.1 %). The May 2026 baseline lift (employer-facing current-spend numbers re-anchored to the Source-of-Truth doc's Section 6 Y1 industry benchmarks: $785 PEPM traditional self-funded, $715 level-funded, $975 fully-insured BUCA) explains why Conservative no longer flips red — the prior demo baselines were running below industry trend, which made the worst-realistic preset combination understate margin.
+Under **Expected**, the demos split by chronic-mix realism: ABC +15.5 %, XYZ +23.9 %, Riverdale +38.0 %. Riverdale (hospitality, older + sedentary workforce) shows the strongest savings because the chronic-heavy population lets DPC + indemnity carry more of the load. ABC (manufacturing, broader age mix) is in the middle. XYZ (construction, partial-summary Mode 2) sits in between but is more sensitive to how the partial decomposition assigns claims. Under **Aggressive**, savings widen to +23 %–+43 %. Under **Conservative**, the $130 PEPM stop-loss premium and 1.40× risk-margin amplification combined with the $75K attachment compress savings: ABC nearly breaks even at +1.6 %, XYZ at +10.2 %, Riverdale still strong at +27.1 %. The Conservative-preset compression on ABC reflects that the heavy-tailed claim distribution (May 2026 generator update) concentrates cost on chronic members but keeps most below the high attachment, leaving more as employer residual that the risk-margin then amplifies through the deprecated v3.0/v3.1 placeholder.
 
 Numbers above are produced by direct invocation of the engine modules (`runCalculation` from `src/engine/calculate.js` against the seeded demo JSON) and reproduce what the dashboard renders for each demo on load.
 
@@ -336,7 +336,7 @@ Numbers above are produced by direct invocation of the engine modules (`runCalcu
 
 The shipped demo numbers above reflect a multi-pass re-baseline. The primary anchor is now the internal **`OffPlan Financial Model Assumptions Reference (Source of Truth)` — May 2026** (`docs/OffPlan_Financial_Model_Assumptions_Reference.docx`); the broker-survey work that drove the prior pass is retained as cross-check.
 
-1. **OffPlan stack rebuilt against the doc's Section 2.** `OFFPLAN_MEMBERSHIP_PEPM` dropped from `$195` to **`$185`** (locked); the stack now also includes `PBM_ADMIN_PEPM = $8` (working assumption, finalize via Yuzu PBM RFP), `FIRSTHEALTH_PEPM = $5.95` (Yuzu rate card, confirmed), `MEDWATCH_PEPM = $3.25` (Yuzu rate card, confirmed), and `ACCIDENT_INDEMNITY_PEPM = $40` (working assumption, finalize w/ TownHealth or equivalent). `TPA_PEPM` stays at `$40` (Yuzu confirmed). Sum is `OFFPLAN_FIXED_OVERHEAD_PEPM = $282.20`. Combined with the Expected stop-loss line ($100) and the deterministic claims-fund placeholder (~$175 PEPM at the ABC demo), the Expected scenario lands at **$557.45 all-in PEPM** — within $25 of the doc's $582.20 single-coverage anchor.
+1. **OffPlan stack rebuilt against the doc's Section 2.** `OFFPLAN_MEMBERSHIP_PEPM` dropped from `$195` to **`$185`** (locked); the stack now also includes `PBM_ADMIN_PEPM = $8` (working assumption, finalize via Yuzu PBM RFP), `FIRSTHEALTH_PEPM = $5.95` (Yuzu rate card, confirmed), `MEDWATCH_PEPM = $3.25` (Yuzu rate card, confirmed), and `ACCIDENT_INDEMNITY_PEPM = $40` (working assumption, finalize w/ TownHealth or equivalent). `TPA_PEPM` stays at `$40` (Yuzu confirmed). Sum is `OFFPLAN_FIXED_OVERHEAD_PEPM = $282.20`. Combined with the Expected stop-loss line ($100) and the deterministic claims-fund placeholder, ABC's Expected scenario lands at **$662.86 all-in PEPM** under the May 2026 heavy-tailed generator (was $557.45 under the prior uniform-distribution build, near the doc's $582.20 anchor). The shift reflects that the heavy-tailed distribution leaves more spend on the employer residual side of the cascade rather than crossing stop-loss attachment; the doc's anchor itself was calibrated against the old generator and will need a refresh.
 
 2. **Stop-loss premium PEPM** moved from `$175/$130/$100` (Conservative/Expected/Aggressive) to **`$130/$100/$85`** to anchor on the doc's Section 2 working assumption of `$100 PEPM` and Section 3 disclosure that *"carriers will price initial coverage based on conservative assumptions until population experience validates the lower claims fund expectation, which may push initial stop-loss premiums above the $100 PEPM working assumption."* Expected sits at the doc anchor; Conservative reflects the pre-experience underwriting markup; Aggressive reflects post-experience pricing once population data validates.
 
@@ -349,6 +349,8 @@ The shipped demo numbers above reflect a multi-pass re-baseline. The primary anc
 4. **Synthetic distribution recalibrated** in `src/engine/synthetic.js → SYNTHETIC_DISTRIBUTION`: Specialty Rx 8 % → **16 %**, Outpatient Surgery 10 % → **12 %**, Inpatient 18 % → **20 %**, Imaging avg claim $800 → **$1,600**, Procedures avg claim $2,400 → **$4,800** (200–300 % of Medicare reality). Other lines trimmed proportionally to keep shares summing to 1.0.
 
 5. **Risk-margin × residual placeholder retained as-is** (still flagged "deprecated v3.0/v3.1" in the dashboard). The doc's Section 3 working anchor for this layer is **$200 PMPM** (range $140–$240). Removing the placeholder now would silently under-fund the residual without any replacement; the spec replaces the whole construct with stochastic Min Required Liquidity in a later build.
+
+6. **Synthetic generator made heavy-tailed** (May 2026) in `src/engine/synthetic.js`. Each synthetic member now receives a log-normal utilization weight (sigma=1.0) at run start; the top 28% by weight are stamped `chronic_flag: true` directly on every claim they generate, and weighted random sampling drives non-Bucket-A claim assignment. The previous uniform-distribution generator distributed claims sequentially across all members, which made the chronic-prevalence auto-estimator return implausible values (96–100 % on synthetic demos) and overstated stop-loss attachment crossings. The new generator produces realistic claim concentration (top 5% drive ~49% of non-routine spend, top 20% drive ~78%), which is more aligned with real-world Milliman/MEPS utilization curves. The downstream effect on the cascade: Conservative/Expected residuals grew (more spend stays as employer residual instead of crossing the $50K member-aggregate stop-loss attachment), savings narrative compressed (ABC Expected: 28.9% → 15.5%, more realistic for an SMB chronic-mix population), and CER bands adjusted (5–8× under Expected vs the prior 4–8.5×). Frozen demo JSONs were regenerated via `npm run gen-demo`.
 
 ---
 
@@ -424,7 +426,52 @@ The catalog has 11 tiers per Spec v1.2 §4 (T1 primary care through T11 maternit
 | Spec v1.2 monthly-recurrence model for Specialty Rx (T10) | **Not modeled** — collapsed to per-event sampling for MVP |
 | Spec v1.2 bimodal Maternity/NICU split (T11) | **Not modeled** — single log-normal for MVP |
 
-**Where the overlay lands in calibration.** *Note: reference numbers below are pre-payment-spread (single-month catastrophic outflow). Adding the 1/3 / 1/3 / 1/3 spread reduces MRL by ~30–45% on catastrophic-heavy populations because peak deficit no longer absorbs the full hospital bill in one shot. Refresh from the running app rather than this paragraph for any commercial conversation.* ABC Manufacturing at the Expected preset under the pre-spread v1 overlay — MRL ≈ $280K, CER ≈ 5.5×, P99 ≈ $750K. Translating to PEPM-equivalent: MRL/lives/12 ≈ $144 PEPM, which sits between the Spec v1.2 worked example anchor ($115 PEPM) and the deterministic baseline ($85 PEPM residual + ~$130 stop-loss = $215 PEPM annual run-rate). Riverdale and XYZ produced comparable PEPM-equivalents under the pre-spread build; with the spread, expect CER 7–10× across the demos. The tail overlay's λ is the single calibration knob for timing-resample mode; lower λ shifts the simulator back toward "this employer's actual claims" and higher λ toward "any plausible employer of this size."
+**Demo calibration — v4 stochastic engine, 5,000 runs, timing-resample mode.**
+Includes payment spread (1/3 × 3 months), bootstrap CIs, chronic clustering, complications. Numbers below are reproducible by running the cascade + simulator against the frozen demo claims.
+
+**ABC Manufacturing** (162 lives, $1,525,000 total spend, auto-estimated chronic prevalence 30.2%)
+
+| Scenario | Residual Fund | Residual PEPM | MRL (P95) | P99 | CER | Liquidity Reduction | OffPlan Annual | Net Savings |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| Conservative | $499,027 | $256.70 | $291,664 | $875,396 | 5.23× | 80.9% | $1,499,955 | $25,045 (1.6%) |
+| **Expected** | **$436,485** | **$224.53** | **$299,032** | **$950,868** | **5.10×** | **80.4%** | **$1,288,604** | **$236,396 (15.5%)** |
+| Aggressive | $415,044 | $213.50 | $306,513 | $852,418 | 4.98× | 79.9% | $1,170,385 | $354,615 (23.3%) |
+
+**XYZ Construction** (98 lives, $840,000 total spend, auto-estimated chronic prevalence 30.0%)
+
+| Scenario | Residual Fund | Residual PEPM | MRL (P95) | P99 | CER | Liquidity Reduction | OffPlan Annual | Net Savings |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| Conservative | $183,959 | $156.43 | $208,656 | $563,676 | 4.03× | 75.2% | $742,290 | $97,710 (11.6%) |
+| **Expected** | **$124,503** | **$105.87** | **$205,433** | **$575,978** | **4.09×** | **75.5%** | **$605,096** | **$234,904 (28.0%)** |
+| Aggressive | $97,995 | $83.33 | $198,818 | $621,731 | 4.22× | 76.3% | $539,621 | $300,379 (35.8%) |
+
+**Riverdale Hospitality** (205 lives, $2,400,000 total spend, auto-estimated chronic prevalence 27.8%)
+
+| Scenario | Residual Fund | Residual PEPM | MRL (P95) | P99 | CER | Liquidity Reduction | OffPlan Annual | Net Savings |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| Conservative | $524,867 | $213.36 | $314,104 | $773,255 | 7.64× | 86.9% | $1,748,826 | $651,174 (27.1%) |
+| **Expected** | **$438,597** | **$178.29** | **$310,497** | **$871,777** | **7.73×** | **87.1%** | **$1,488,459** | **$911,541 (38.0%)** |
+| Aggressive | $412,699 | $167.76 | $342,744 | $980,712 | 7.00× | 85.7% | $1,357,281 | $1,042,719 (43.4%) |
+
+CER under Expected lands at **5.10× / 4.09× / 7.73×** across the three demos, comfortably within the Liquidity Spec v1.2 §27 worked-example range (3–10× depending on chronic mix). MRL as a percent of total spend lands at **20% / 24% / 13%** — i.e., the employer needs a liquidity facility roughly one-fifth the size of the level-funded pre-fund a traditional carrier would require. Translating to PEPM-equivalent: MRL/lives/12 = $154 / $175 / $126 PEPM (ABC / XYZ / Riverdale at Expected), bracketing the Spec v1.2 worked-example anchor of $115 PEPM.
+
+ABC and XYZ land in similar CER territory (5.10× and 4.09×) reflecting their similar lives bases and chronic mix. Riverdale's stronger 7.73× reflects the larger covered-lives base (205 vs 162/98) which smooths timing variance across more members, lower MRL as a fraction of total spend.
+
+**Auto-estimated chronic prevalence — generator-stamped today, condition catalog stubbed for production.**
+
+The synthetic generator (`src/engine/synthetic.js`) assigns each member a log-normal utilization weight at run start (sigma=1.0, mu=0); the top `CHRONIC_TOP_FRACTION = 0.28` of members by weight are stamped `chronic_flag: true` directly on every claim they generate. This produces realistic heavy-tailed concentration: top 5% of members own ~49% of non-Bucket-A spend, top 20% own ~78%, matching real-world claim concentration patterns.
+
+`estimateChronicPrevalence(classifiedClaims)` in `src/engine/calibration.js` reads `chronic_flag` directly when present (fast path) and returns the share of unique members flagged. When chronic_flag is absent (raw real claims data without generator enrichment), it falls back to a utilization-pattern heuristic: a member is chronic if at least 2 of (i) ≥6 distinct service months, (ii) ≥4 non-Bucket-A claims, (iii) non-A spend > 3× population per-member mean. The heuristic result is plausibility-clamped to the CDC working-age band [0.10, 0.45]; values outside that band return null, and the engine falls back to the `CHRONIC_PREVALENCE = 0.28` population default.
+
+The condition-aware production path lives in `CHRONIC_CONDITION_CATALOG` (`src/constants.js`) — a 30-condition dictionary with ICD-10 prefixes and cost bands (low/medium/high) that distinguishes cheap chronic conditions (HTN, hypothyroidism, GERD on generics — sub-$2K/yr incremental) from expensive chronic conditions that actually drive MRL (psoriatic arthritis on Cosentyx, RA on Humira, MS on Tysabri, hemophilia on factor concentrates — $50K-$500K+/yr). The simulator's chronic uplift weights what matters: not chronicity per se, but per-member spend concentration on biologics / specialty Rx / dialysis / oncology.
+
+`identifyExpensiveChronicMembers(claims, catalog)` in `src/engine/calibration.js` is the production wiring stub. It returns `[]` today because synthetic claims don't carry diagnosis codes; when real ingestion stamps `c.diagnosis_codes` (or `c.icd10_codes`), the longest-prefix-match logic activates and produces per-member condition profiles. Future iteration should:
+
+1. Use `identifyExpensiveChronicMembers().length / total_members` to refine `estimateChronicPrevalence` when diagnosis codes are present.
+2. Surface a per-employer "expensive chronic share" alongside overall prevalence in the `chronic_clustering` result block.
+3. Replace the flat `CHRONIC_TIER_UPLIFT` table with per-condition uplift weights — high-cost autoimmune drives T10 specialty Rx differently than HTN drives T2 specialty consults.
+
+For production employers without enriched ICD-10 data, the **manual prevalence override** in Setup is the recommended path (anchored to carrier high-cost-claimant reports or CMS HCC-flagged member counts). The auto-estimate is a directional starting point.
 
 **DPC clinical mitigation factor.** Both complication probability and chronic uplift are scaled by `(1 − scenario.dpc_clinical_mitigation_pct)` — a single knob that captures DPC's clinical effect on event frequency. The model is: monthly-membership primary care absorbs chronic management (so chronic flares route through PCP rather than ER/inpatient) and PCP catches complication early-warnings before they cascade. Preset values: conservative 0.20, expected 0.30, aggressive 0.45. The Pareto tail overlay in timing-resample mode is **not** mitigated — it represents truly catastrophic events (cancer diagnosis, major trauma) where DPC's preventive leverage is weak.
 
@@ -432,7 +479,7 @@ The catalog has 11 tiers per Spec v1.2 §4 (T1 primary care through T11 maternit
 
 **Per-employer chronic-prevalence calibration.** On every claims ingestion, `estimateChronicPrevalence()` (in `src/engine/calibration.js`) computes the share of unique members whose claims include either a Bucket E event or > $5K of cumulative non-Bucket-A spend, and stamps it on the employer record as `chronic_prevalence` (with `chronic_prevalence_source: 'auto'`). The Setup screen exposes a manual override that flips the source to `'manual'`, after which auto-estimation no longer overwrites it. The stochastic engine reads `employer.chronic_prevalence` and falls back to the population default only when the override is unset or out of range. The `chronic_clustering` block in the result surfaces both the value used and its source.
 
-**Bottom line for stakeholders:** this build produces a directional MRL number anchored to spec-equivalent values (CER 4–7× across the demos, P99 in the right order of magnitude for SMB populations) with bootstrap CIs that surface percentile uncertainty and a DPC-mitigated chronic-clustering layer that responds to scenario tuning and per-employer prevalence calibration. It supports CFO conversations and prospect demos. It is **not yet** sufficient as an MGU underwriting submission — that step still requires the T10/T11 spec refinements.
+**Bottom line for stakeholders:** this build produces a directional MRL number anchored to spec-equivalent values (CER 4.1–7.7× under Expected across the demos, P99 in the right order of magnitude for SMB populations) with bootstrap CIs that surface percentile uncertainty, a DPC-mitigated chronic-clustering layer that responds to scenario tuning and per-employer prevalence calibration, a payment-spread model that reflects how hospital adjudication and invoice terms actually delay employer cash outflow, and a heavy-tailed synthetic generator that produces realistic per-member claim concentration (top 5% drive ~49% of non-routine spend). It supports CFO conversations and prospect demos at this level of fidelity. Two refinements remain before this is sufficient as an MGU underwriting submission: T10 monthly-recurrence (Specialty Rx) and T11 bimodal Maternity/NICU split. For production-grade conversations, employer-supplied high-cost-claimant data or full ICD-10 ingestion should replace the auto-estimated prevalence — the catalog stub is ready for that hydration.
 
 ---
 

@@ -102,9 +102,20 @@ Determinism: every random draw goes through a mulberry32 PRNG seeded by FNV-1a h
 
 ### Calibration (`src/engine/calibration.js`)
 
-`estimateChronicPrevalence(classifiedClaims)` returns the share of unique members with at least one Bucket E event or > $5K of cumulative non-Bucket-A spend. Returns `null` when input is empty.
+Two estimators live here, addressing the same question (per-employer chronic prevalence) at different fidelity tiers:
 
-Auto-calibration runs in `App.jsx → ingestClaims()` after every successful classification. It stamps `employer.chronic_prevalence` + `chronic_prevalence_source: 'auto'` unless the user has set `chronic_prevalence_source: 'manual'` via SetupScreen, in which case it leaves the value alone. The stochastic engine reads `employer.chronic_prevalence` and falls back to `CHRONIC_PREVALENCE` (the population default) when unset or out of range.
+**`estimateChronicPrevalence(classifiedClaims)`** — utilization-pattern heuristic that works on the data we have today (`member_id`, `service_date`, `bucket`, `allowed_amount`). A member is chronic if AT LEAST 2 of:
+- (a) Persistence: claims in ≥6 distinct service months
+- (b) Multi-touch: ≥4 non-Bucket-A claims
+- (c) Cost concentration: non-A spend > 3× population per-member mean
+
+Result is plausibility-clamped to `[0.10, 0.45]` (the CDC working-age range); values outside that band return `null` so the caller falls back to the population default. The clamp is necessary because synthetic data distributes claims uniformly across member IDs without the heavy-tailed per-member concentration that real claims data has — without the clamp, the heuristic returns 96–100% on synthetic demos.
+
+**`identifyExpensiveChronicMembers(classifiedClaims, conditionCatalog)`** — production stub for ICD-10-aware condition matching. Returns `[]` today because synthetic claims don't carry diagnosis codes. When real ingestion stamps `c.diagnosis_codes` (or `c.icd10_codes`), the longest-prefix-match logic activates and produces per-member condition profiles tagged against `CHRONIC_CONDITION_CATALOG` (in `src/constants.js`). The catalog distinguishes cheap chronic conditions (HTN, DM2 on generics — sub-$2K/yr incremental) from expensive chronic conditions that actually drive MRL (psoriatic arthritis on biologics, MS on DMTs, hemophilia on factor concentrates — $50K-$500K+/yr).
+
+The fundamental thesis: chronicity itself isn't what drives MRL — *expensive* chronicity is. Today's heuristic doesn't capture this distinction; the catalog stub is the future direction.
+
+Auto-calibration runs in `App.jsx → ingestClaims()` after every successful classification. It stamps `employer.chronic_prevalence` + `chronic_prevalence_source: 'auto'` when the heuristic returns a plausible value. When the heuristic returns `null` (clamped) AND the prior source was `'auto'`, it clears the stale value so the engine falls back to `CHRONIC_PREVALENCE` cleanly. Manual overrides via SetupScreen flip the source to `'manual'` and are never auto-overwritten.
 
 ### Three input modes (`INPUT_MODES` in `src/constants.js`)
 
