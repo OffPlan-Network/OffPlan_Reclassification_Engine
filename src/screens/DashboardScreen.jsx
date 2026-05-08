@@ -108,6 +108,143 @@ export function DashboardScreen({ employer, scenario, result, classifiedClaims, 
         </div>
       </div>
 
+      <div className="bg-white border border-stone-200 rounded-lg p-6 mb-6">
+        <div className="flex items-start justify-between mb-4">
+          <div>
+            <h3 className="font-medium text-stone-900 mb-1">Baseline Comparison</h3>
+            <p className="text-xs text-stone-500 max-w-2xl leading-relaxed">
+              Savings are calculated against current total healthcare spend, not claims-only spend.
+              Historical claims drive the reclassification model; total spend drives the savings comparison.
+            </p>
+          </div>
+          {employer?.current_funding_model && (
+            <div className="text-right text-[11px] text-stone-500">
+              <div className="uppercase tracking-wider">Funding Model</div>
+              <div className="font-medium text-stone-700 normal-case">
+                {employer.plan_type}{employer.baseline_confidence ? ` · ${employer.baseline_confidence} confidence` : ""}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="border border-stone-200 rounded overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-stone-200 bg-stone-50 text-[10px] uppercase tracking-wider text-stone-500">
+                <th className="text-left px-4 py-2.5 font-medium">Metric</th>
+                <th className="text-left px-4 py-2.5 font-medium">Purpose</th>
+                <th className="text-right px-4 py-2.5 font-medium">Annual</th>
+                <th className="text-right px-4 py-2.5 font-medium">PEPM</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr className="border-b border-stone-100">
+                <td className="px-4 py-3 font-medium text-stone-900">Historical Claims</td>
+                <td className="px-4 py-3 text-stone-600">Reclassification modeling</td>
+                <td className="px-4 py-3 text-right font-mono num">{fmtUSD(a.historical_claims)}</td>
+                <td className="px-4 py-3 text-right font-mono num text-stone-500">{fmtUSD(a.historical_claims / lives / 12, 2)}</td>
+              </tr>
+              {hasValidBaseline ? (
+                <>
+                  <tr className="border-b border-stone-100 bg-stone-50/40">
+                    <td className="px-4 py-3 font-medium text-stone-900">Current Total Healthcare Spend</td>
+                    <td className="px-4 py-3 text-stone-600">Savings comparison baseline</td>
+                    <td className="px-4 py-3 text-right font-mono num">{fmtUSD(savingsBaseline)}</td>
+                    <td className="px-4 py-3 text-right font-mono num text-stone-500">{fmtUSD(savingsBaseline / lives / 12, 2)}</td>
+                  </tr>
+                  <tr className="border-b border-stone-100">
+                    <td className="px-4 py-3 font-medium text-stone-900">OffPlan Total Stack</td>
+                    <td className="px-4 py-3 text-stone-600">New model</td>
+                    <td className="px-4 py-3 text-right font-mono num">{fmtUSD(totalOffPlanAnnual)}</td>
+                    <td className="px-4 py-3 text-right font-mono num text-stone-500">{fmtUSD(totalOffPlanPEPM, 2)}</td>
+                  </tr>
+                  <tr className="bg-emerald-50/40">
+                    <td className="px-4 py-3 font-semibold text-emerald-900">Net Savings</td>
+                    <td className="px-4 py-3 text-emerald-800">Total spend minus OffPlan stack</td>
+                    <td className={`px-4 py-3 text-right font-mono num font-semibold ${annualSavings >= 0 ? "text-emerald-800" : "text-rose-700"}`}>
+                      {fmtUSD(annualSavings)}
+                    </td>
+                    <td className={`px-4 py-3 text-right font-mono num ${annualSavings >= 0 ? "text-emerald-700" : "text-rose-700"}`}>
+                      {fmtPct(savingsPct)}
+                    </td>
+                  </tr>
+                </>
+              ) : (
+                <tr className="border-b border-stone-100">
+                  <td className="px-4 py-3 font-medium text-stone-900">OffPlan Total Stack</td>
+                  <td className="px-4 py-3 text-stone-600">New model</td>
+                  <td className="px-4 py-3 text-right font-mono num">{fmtUSD(totalOffPlanAnnual)}</td>
+                  <td className="px-4 py-3 text-right font-mono num text-stone-500">{fmtUSD(totalOffPlanPEPM, 2)}</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {!hasValidBaseline && (
+          <div className="mt-3 bg-rose-50 border border-rose-200 rounded p-3 text-xs text-rose-900 flex gap-2">
+            <AlertTriangle size={14} className="text-rose-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <strong>Current Total Healthcare Spend is required before savings can be calculated.</strong> Historical claims are used only for reclassification modeling and cannot be used as the savings baseline. Add Current Total Healthcare Spend in Setup to enable savings calculations and PDF export.
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="bg-white border border-stone-200 rounded-lg p-6 mb-6">
+        <h3 className="font-medium text-stone-900 mb-1">Where the historical claims went</h3>
+        <p className="text-xs text-stone-500 mb-5">
+          Each segment shows what happened to that portion of the original {fmtUSD(a.historical_claims)} in claims.
+        </p>
+        <FlowChart aggregates={a} historical={a.historical_claims} />
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+        <KPICard
+          icon={DollarSign} accent="stone"
+          label="Historical Claims" value={fmtUSD(a.historical_claims)}
+          sub={`${fmtNum(classifiedClaims.length)} lines · for modeling`}
+        />
+        <KPICard
+          icon={TrendingDown} accent="emerald"
+          label="DPC Eliminated" value={fmtUSD(a.dpc_eliminated)}
+          sub={`${fmtPct(a.dpc_eliminated / a.historical_claims)} of historical`}
+        />
+        <KPICard
+          icon={Zap} accent="blue"
+          label="Cash-Pay Repricing" value={fmtUSD(a.repriced_savings)}
+          sub="Specialty, imaging, procedures"
+        />
+        <KPICard
+          icon={Activity} accent="violet"
+          label="ER + Indemnity Offset"
+          value={fmtUSD(a.er_reduction_savings + a.indemnity_offset)}
+          sub={`Cash benefits: ${fmtUSD(a.indemnity_offset)}`}
+        />
+        <KPICard
+          icon={Shield} accent="rose"
+          label="Stop-Loss Shift" value={fmtUSD(a.stop_loss_shift)}
+          sub="Above attachment point"
+        />
+        <KPICard
+          icon={Target} accent="amber"
+          label="Residual Fund" value={fmtUSD(a.residual_fund)}
+          sub={`${fmtUSD(residualPEPM, 2)} PEPM`}
+        />
+        <KPICard
+          icon={DollarSign} accent="stone"
+          label="Total OffPlan PEPM"
+          value={fmtUSD(totalOffPlanPEPM, 2)}
+          sub={`Membership + PBM/Network/UM + Indemnity + TPA + S/L + Claims Fund`}
+        />
+        <KPICard
+          icon={Users} accent="emerald"
+          label="Estimated Savings"
+          value={hasValidBaseline ? fmtUSD(annualSavings) : "—"}
+          sub={hasValidBaseline ? `${fmtPct(savingsPct)} reduction` : "Total Healthcare Spend required"}
+        />
+      </div>
+
       <div className="bg-stone-900 text-white rounded-lg p-8 mb-6 grid grid-cols-1 md:grid-cols-3 gap-6">
         <div>
           <div className="text-[10px] uppercase tracking-wider text-stone-400 mb-2">Residual Fund · Annual</div>
@@ -311,143 +448,6 @@ export function DashboardScreen({ employer, scenario, result, classifiedClaims, 
           </div>
         </div>
       )}
-
-      <div className="bg-white border border-stone-200 rounded-lg p-6 mb-6">
-        <h3 className="font-medium text-stone-900 mb-1">Where the historical claims went</h3>
-        <p className="text-xs text-stone-500 mb-5">
-          Each segment shows what happened to that portion of the original {fmtUSD(a.historical_claims)} in claims.
-        </p>
-        <FlowChart aggregates={a} historical={a.historical_claims} />
-      </div>
-
-      <div className="bg-white border border-stone-200 rounded-lg p-6 mb-6">
-        <div className="flex items-start justify-between mb-4">
-          <div>
-            <h3 className="font-medium text-stone-900 mb-1">Baseline Comparison</h3>
-            <p className="text-xs text-stone-500 max-w-2xl leading-relaxed">
-              Savings are calculated against current total healthcare spend, not claims-only spend.
-              Historical claims drive the reclassification model; total spend drives the savings comparison.
-            </p>
-          </div>
-          {employer?.current_funding_model && (
-            <div className="text-right text-[11px] text-stone-500">
-              <div className="uppercase tracking-wider">Funding Model</div>
-              <div className="font-medium text-stone-700 normal-case">
-                {employer.plan_type}{employer.baseline_confidence ? ` · ${employer.baseline_confidence} confidence` : ""}
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="border border-stone-200 rounded overflow-hidden">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-stone-200 bg-stone-50 text-[10px] uppercase tracking-wider text-stone-500">
-                <th className="text-left px-4 py-2.5 font-medium">Metric</th>
-                <th className="text-left px-4 py-2.5 font-medium">Purpose</th>
-                <th className="text-right px-4 py-2.5 font-medium">Annual</th>
-                <th className="text-right px-4 py-2.5 font-medium">PEPM</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr className="border-b border-stone-100">
-                <td className="px-4 py-3 font-medium text-stone-900">Historical Claims</td>
-                <td className="px-4 py-3 text-stone-600">Reclassification modeling</td>
-                <td className="px-4 py-3 text-right font-mono num">{fmtUSD(a.historical_claims)}</td>
-                <td className="px-4 py-3 text-right font-mono num text-stone-500">{fmtUSD(a.historical_claims / lives / 12, 2)}</td>
-              </tr>
-              {hasValidBaseline ? (
-                <>
-                  <tr className="border-b border-stone-100 bg-stone-50/40">
-                    <td className="px-4 py-3 font-medium text-stone-900">Current Total Healthcare Spend</td>
-                    <td className="px-4 py-3 text-stone-600">Savings comparison baseline</td>
-                    <td className="px-4 py-3 text-right font-mono num">{fmtUSD(savingsBaseline)}</td>
-                    <td className="px-4 py-3 text-right font-mono num text-stone-500">{fmtUSD(savingsBaseline / lives / 12, 2)}</td>
-                  </tr>
-                  <tr className="border-b border-stone-100">
-                    <td className="px-4 py-3 font-medium text-stone-900">OffPlan Total Stack</td>
-                    <td className="px-4 py-3 text-stone-600">New model</td>
-                    <td className="px-4 py-3 text-right font-mono num">{fmtUSD(totalOffPlanAnnual)}</td>
-                    <td className="px-4 py-3 text-right font-mono num text-stone-500">{fmtUSD(totalOffPlanPEPM, 2)}</td>
-                  </tr>
-                  <tr className="bg-emerald-50/40">
-                    <td className="px-4 py-3 font-semibold text-emerald-900">Net Savings</td>
-                    <td className="px-4 py-3 text-emerald-800">Total spend minus OffPlan stack</td>
-                    <td className={`px-4 py-3 text-right font-mono num font-semibold ${annualSavings >= 0 ? "text-emerald-800" : "text-rose-700"}`}>
-                      {fmtUSD(annualSavings)}
-                    </td>
-                    <td className={`px-4 py-3 text-right font-mono num ${annualSavings >= 0 ? "text-emerald-700" : "text-rose-700"}`}>
-                      {fmtPct(savingsPct)}
-                    </td>
-                  </tr>
-                </>
-              ) : (
-                <tr className="border-b border-stone-100">
-                  <td className="px-4 py-3 font-medium text-stone-900">OffPlan Total Stack</td>
-                  <td className="px-4 py-3 text-stone-600">New model</td>
-                  <td className="px-4 py-3 text-right font-mono num">{fmtUSD(totalOffPlanAnnual)}</td>
-                  <td className="px-4 py-3 text-right font-mono num text-stone-500">{fmtUSD(totalOffPlanPEPM, 2)}</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {!hasValidBaseline && (
-          <div className="mt-3 bg-rose-50 border border-rose-200 rounded p-3 text-xs text-rose-900 flex gap-2">
-            <AlertTriangle size={14} className="text-rose-600 flex-shrink-0 mt-0.5" />
-            <div>
-              <strong>Current Total Healthcare Spend is required before savings can be calculated.</strong> Historical claims are used only for reclassification modeling and cannot be used as the savings baseline. Add Current Total Healthcare Spend in Setup to enable savings calculations and PDF export.
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-        <KPICard
-          icon={DollarSign} accent="stone"
-          label="Historical Claims" value={fmtUSD(a.historical_claims)}
-          sub={`${fmtNum(classifiedClaims.length)} lines · for modeling`}
-        />
-        <KPICard
-          icon={TrendingDown} accent="emerald"
-          label="DPC Eliminated" value={fmtUSD(a.dpc_eliminated)}
-          sub={`${fmtPct(a.dpc_eliminated / a.historical_claims)} of historical`}
-        />
-        <KPICard
-          icon={Zap} accent="blue"
-          label="Cash-Pay Repricing" value={fmtUSD(a.repriced_savings)}
-          sub="Specialty, imaging, procedures"
-        />
-        <KPICard
-          icon={Activity} accent="violet"
-          label="ER + Indemnity Offset"
-          value={fmtUSD(a.er_reduction_savings + a.indemnity_offset)}
-          sub={`Cash benefits: ${fmtUSD(a.indemnity_offset)}`}
-        />
-        <KPICard
-          icon={Shield} accent="rose"
-          label="Stop-Loss Shift" value={fmtUSD(a.stop_loss_shift)}
-          sub="Above attachment point"
-        />
-        <KPICard
-          icon={Target} accent="amber"
-          label="Residual Fund" value={fmtUSD(a.residual_fund)}
-          sub={`${fmtUSD(residualPEPM, 2)} PEPM`}
-        />
-        <KPICard
-          icon={DollarSign} accent="stone"
-          label="Total OffPlan PEPM"
-          value={fmtUSD(totalOffPlanPEPM, 2)}
-          sub={`Membership + PBM/Network/UM + Indemnity + TPA + S/L + Claims Fund`}
-        />
-        <KPICard
-          icon={Users} accent="emerald"
-          label="Estimated Savings"
-          value={hasValidBaseline ? fmtUSD(annualSavings) : "—"}
-          sub={hasValidBaseline ? `${fmtPct(savingsPct)} reduction` : "Total Healthcare Spend required"}
-        />
-      </div>
 
       <div className="bg-white border border-stone-200 rounded-lg overflow-hidden">
         <div className="px-5 py-3 border-b border-stone-200 bg-stone-50">
