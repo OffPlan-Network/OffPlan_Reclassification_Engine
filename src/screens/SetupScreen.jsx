@@ -77,70 +77,79 @@ export function SetupScreen({ initial, onSave }) {
         Establish baseline facts. These anchor the entire reclassification analysis.
       </p>
 
-      <div className="bg-white border border-stone-200 rounded-lg p-8 space-y-6">
-        <Field label="Employer Name" required>
-          <input
-            value={form.name}
-            onChange={(e) => set("name", e.target.value)}
-            placeholder="ABC Manufacturing"
-            className="w-full bg-stone-50 border border-stone-200 rounded px-3 h-11 text-stone-900 focus:outline-none focus:border-stone-900"
-          />
-        </Field>
-
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="Industry">
-            <select
-              value={form.industry}
-              onChange={(e) => set("industry", e.target.value)}
+      <div className="space-y-5">
+        {/* ============= 1. Identity ============= */}
+        <SetupSection
+          step={1}
+          title="Identity"
+          subtitle="Who is this employer?"
+        >
+          <Field label="Employer Name" required>
+            <input
+              value={form.name}
+              onChange={(e) => set("name", e.target.value)}
+              placeholder="ABC Manufacturing"
               className="w-full bg-stone-50 border border-stone-200 rounded px-3 h-11 text-stone-900 focus:outline-none focus:border-stone-900"
-            >
-              <option value="">Select industry</option>
-              {["Manufacturing", "Construction", "Professional Services", "Hospitality", "Retail",
-                "Healthcare", "Technology", "Finance", "Logistics", "Other"].map(x =>
-                <option key={x}>{x}</option>)}
-            </select>
-          </Field>
-          <Field label="State">
-            <input
-              value={form.state}
-              onChange={(e) => set("state", e.target.value.toUpperCase().slice(0, 2))}
-              placeholder="GA"
-              maxLength={2}
-              className="w-full bg-stone-50 border border-stone-200 rounded px-3 h-11 text-stone-900 focus:outline-none focus:border-stone-900 uppercase"
             />
           </Field>
-        </div>
 
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="Employees" required>
-            <input
-              type="number" value={form.employee_count}
-              onChange={(e) => set("employee_count", e.target.value)}
-              placeholder="75"
-              className="w-full bg-stone-50 border border-stone-200 rounded px-3 h-11 text-stone-900 num focus:outline-none focus:border-stone-900 font-mono"
-            />
-          </Field>
-          <Field label="Covered Lives" required tooltip="Includes employees and dependents">
-            <input
-              type="number" value={form.covered_lives}
-              onChange={(e) => set("covered_lives", e.target.value)}
-              placeholder="162"
-              className="w-full bg-stone-50 border border-stone-200 rounded px-3 h-11 text-stone-900 num focus:outline-none focus:border-stone-900 font-mono"
-            />
-          </Field>
-        </div>
-
-        <div className="border-t border-stone-200 pt-6 mt-2">
-          <div className="text-[10px] uppercase tracking-[0.18em] text-stone-500 font-semibold mb-1">
-            Baseline · Two Questions
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Industry">
+              <select
+                value={form.industry}
+                onChange={(e) => set("industry", e.target.value)}
+                className="w-full bg-stone-50 border border-stone-200 rounded px-3 h-11 text-stone-900 focus:outline-none focus:border-stone-900"
+              >
+                <option value="">Select industry</option>
+                {["Manufacturing", "Construction", "Professional Services", "Hospitality", "Retail",
+                  "Healthcare", "Technology", "Finance", "Logistics", "Other"].map(x =>
+                  <option key={x}>{x}</option>)}
+              </select>
+            </Field>
+            <Field label="State">
+              <input
+                value={form.state}
+                onChange={(e) => set("state", e.target.value.toUpperCase().slice(0, 2))}
+                placeholder="GA"
+                maxLength={2}
+                className="w-full bg-stone-50 border border-stone-200 rounded px-3 h-11 text-stone-900 focus:outline-none focus:border-stone-900 uppercase"
+              />
+            </Field>
           </div>
-          <h3 className="font-display text-2xl text-stone-900 mb-1">How healthcare is paid for today</h3>
-          <p className="text-xs text-stone-500 mb-5 max-w-xl leading-relaxed">
-            Savings are calculated against current total healthcare spend, not claims-only spend.
-            For fully insured employers, use total annual premium. For self-funded employers,
-            include claims paid, TPA fees, network access fees, stop-loss premium, PBM/admin fees,
-            and other plan costs.
-          </p>
+        </SetupSection>
+
+        {/* ============= 2. Population ============= */}
+        <SetupSection
+          step={2}
+          title="Population"
+          subtitle="Headcount and covered lives drive every per-member calculation downstream."
+        >
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Employees" required>
+              <input
+                type="number" value={form.employee_count}
+                onChange={(e) => set("employee_count", e.target.value)}
+                placeholder="75"
+                className="w-full bg-stone-50 border border-stone-200 rounded px-3 h-11 text-stone-900 num focus:outline-none focus:border-stone-900 font-mono"
+              />
+            </Field>
+            <Field label="Covered Lives" required tooltip="Includes employees and dependents">
+              <input
+                type="number" value={form.covered_lives}
+                onChange={(e) => set("covered_lives", e.target.value)}
+                placeholder="162"
+                className="w-full bg-stone-50 border border-stone-200 rounded px-3 h-11 text-stone-900 num focus:outline-none focus:border-stone-900 font-mono"
+              />
+            </Field>
+          </div>
+        </SetupSection>
+
+        {/* ============= 3. Funding & Baseline ============= */}
+        <SetupSection
+          step={3}
+          title="Funding model and current spend"
+          subtitle="Savings are calculated against current total healthcare spend, not claims-only spend. For fully insured employers, use total annual premium. For self-funded employers, include claims paid, TPA fees, network access fees, stop-loss premium, PBM/admin fees, and other plan costs."
+        >
 
           <Field label="Question 1 · Current Funding Model" required>
             <div className="grid grid-cols-4 gap-2">
@@ -267,35 +276,39 @@ export function SetupScreen({ initial, onSave }) {
               </div>
             </div>
           )}
-        </div>
+        </SetupSection>
 
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="Claims Period Start">
-            <input
-              type="date" value={form.claims_period_start}
-              onChange={(e) => set("claims_period_start", e.target.value)}
-              className="w-full bg-stone-50 border border-stone-200 rounded px-3 h-11 text-stone-900 focus:outline-none focus:border-stone-900"
-            />
-          </Field>
-          <Field label="Claims Period End">
-            <input
-              type="date" value={form.claims_period_end}
-              onChange={(e) => set("claims_period_end", e.target.value)}
-              className="w-full bg-stone-50 border border-stone-200 rounded px-3 h-11 text-stone-900 focus:outline-none focus:border-stone-900"
-            />
-          </Field>
-        </div>
-
-        <div className="border-t border-stone-200 pt-6 mt-2">
-          <div className="text-[10px] uppercase tracking-[0.18em] text-stone-500 font-semibold mb-1">
-            Stochastic Calibration · Optional
+        {/* ============= 4. Claims Period ============= */}
+        <SetupSection
+          step={4}
+          title="Claims period"
+          subtitle="The 12-month window the historical claims data covers."
+        >
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Period Start">
+              <input
+                type="date" value={form.claims_period_start}
+                onChange={(e) => set("claims_period_start", e.target.value)}
+                className="w-full bg-stone-50 border border-stone-200 rounded px-3 h-11 text-stone-900 focus:outline-none focus:border-stone-900"
+              />
+            </Field>
+            <Field label="Period End">
+              <input
+                type="date" value={form.claims_period_end}
+                onChange={(e) => set("claims_period_end", e.target.value)}
+                className="w-full bg-stone-50 border border-stone-200 rounded px-3 h-11 text-stone-900 focus:outline-none focus:border-stone-900"
+              />
+            </Field>
           </div>
-          <h3 className="font-display text-2xl text-stone-900 mb-1">Chronic prevalence</h3>
-          <p className="text-xs text-stone-500 mb-4 max-w-xl leading-relaxed">
-            Share of covered members managing at least one chronic condition. Drives event-clustering
-            in the tier-generated stochastic mode. Auto-estimated from claims after the first upload;
-            override here if you have better data (e.g. from carrier high-cost-claimant reports).
-          </p>
+        </SetupSection>
+
+        {/* ============= 5. Stochastic Calibration (optional) ============= */}
+        <SetupSection
+          step={5}
+          optional
+          title="Chronic prevalence"
+          subtitle="Share of covered members managing at least one chronic condition. Drives event-clustering in the tier-generated stochastic mode. Auto-estimated from claims after the first upload; override here if you have better data (e.g. from carrier high-cost-claimant reports)."
+        >
           <div className="grid grid-cols-2 gap-4 items-end">
             <Field label="Chronic Prevalence (%)">
               <input
@@ -317,7 +330,7 @@ export function SetupScreen({ initial, onSave }) {
                 : `Default ${DEFAULT_CHRONIC_PREVALENCE_PCT}% · auto-estimates after first claims upload`}
             </div>
           </div>
-        </div>
+        </SetupSection>
 
         <div className="flex justify-end pt-2">
           <button
@@ -358,6 +371,28 @@ export function SetupScreen({ initial, onSave }) {
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function SetupSection({ step, title, subtitle, optional, children }) {
+  return (
+    <div className="bg-white border border-stone-200 rounded-lg p-6">
+      <div className="mb-5 flex items-start gap-3">
+        <div className="w-7 h-7 rounded bg-stone-900 text-white grid place-items-center text-xs font-mono num shrink-0">
+          {step}
+        </div>
+        <div className="flex-1">
+          <div className="flex items-baseline gap-2">
+            <h3 className="font-display text-xl text-stone-900">{title}</h3>
+            {optional && (
+              <span className="text-[10px] uppercase tracking-wider text-stone-500 font-medium">Optional</span>
+            )}
+          </div>
+          {subtitle && <p className="text-xs text-stone-500 mt-1 leading-relaxed">{subtitle}</p>}
+        </div>
+      </div>
+      <div className="space-y-5">{children}</div>
     </div>
   );
 }

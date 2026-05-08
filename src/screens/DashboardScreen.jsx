@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { AlertTriangle, DollarSign, TrendingDown, Zap, Activity, Shield, Target, Users, Droplets, Loader2 } from 'lucide-react';
+import { AlertTriangle, DollarSign, TrendingDown, Zap, Activity, Shield, Target, Users, Droplets, Loader2, ChevronDown, ChevronRight } from 'lucide-react';
 import { fmtUSD, fmtNum, fmtPct } from '../ui/formatters.js';
 import { EmptyState } from '../ui/EmptyState.jsx';
 import { InputModeBadge, ProvenanceFooter } from '../ui/Provenance.jsx';
@@ -26,7 +26,7 @@ export function DashboardScreen({ employer, scenario, result, classifiedClaims, 
 
   const scenarioComparison = useMemo(() => {
     if (!classifiedClaims.length) return [];
-    return Object.entries(SCENARIO_PRESETS).map(([key, preset]) => {
+    const presetRows = Object.entries(SCENARIO_PRESETS).map(([key, preset]) => {
       const r = runCalculation(classifiedClaims, preset, DEFAULT_CASH_PRICES, DEFAULT_INDEMNITY_BENEFITS, DEFAULT_REPRICE_FACTORS);
       const resPEPM = r.aggregates.residual_fund / lives / 12;
       const recPEPM = resPEPM * preset.risk_margin;
@@ -34,6 +34,7 @@ export function DashboardScreen({ employer, scenario, result, classifiedClaims, 
       return {
         key,
         name: preset.name,
+        isCustom: false,
         residualPEPM: resPEPM,
         recommendedPEPM: recPEPM,
         stopLossPEPM: preset.stop_loss_pepm,
@@ -43,7 +44,44 @@ export function DashboardScreen({ employer, scenario, result, classifiedClaims, 
         stopLossShift: r.aggregates.stop_loss_shift,
       };
     });
-  }, [classifiedClaims, lives]);
+
+    // Detect whether the active scenario is a customized variant — i.e.
+    // doesn't match any preset exactly across the knobs that actually
+    // affect the cascade. If customized, add it as a 4th column so the
+    // user can see their custom scenario alongside the three presets.
+    const knobsToCompare = [
+      'dpc_elimination_pct', 'urgent_care_reduction_pct', 'er_reduction_pct',
+      'cashpay_discount_factor', 'attachment_point', 'stop_loss_pepm',
+      'risk_margin', 'indemnity_enabled', 'aggregate_stop_loss_enabled',
+      'aggregate_attachment_pct', 'dpc_clinical_mitigation_pct',
+    ];
+    const matchesPreset = Object.values(SCENARIO_PRESETS).some((preset) =>
+      knobsToCompare.every((k) => {
+        const a = scenario?.[k], b = preset?.[k];
+        if (typeof a === 'number' || typeof b === 'number') return Math.abs((Number(a) || 0) - (Number(b) || 0)) < 1e-6;
+        return a === b;
+      })
+    );
+    if (!matchesPreset) {
+      const r = runCalculation(classifiedClaims, scenario, DEFAULT_CASH_PRICES, DEFAULT_INDEMNITY_BENEFITS, DEFAULT_REPRICE_FACTORS);
+      const resPEPM = r.aggregates.residual_fund / lives / 12;
+      const recPEPM = resPEPM * (Number(scenario.risk_margin) || 1);
+      const totalPEPM = OFFPLAN_FIXED_OVERHEAD_PEPM + (Number(scenario.stop_loss_pepm) || 0) + recPEPM;
+      presetRows.push({
+        key: 'custom',
+        name: `${scenario.name} (custom)`,
+        isCustom: true,
+        residualPEPM: resPEPM,
+        recommendedPEPM: recPEPM,
+        stopLossPEPM: Number(scenario.stop_loss_pepm) || 0,
+        totalPEPM,
+        annualTotal: totalPEPM * lives * 12,
+        residualFund: r.aggregates.residual_fund,
+        stopLossShift: r.aggregates.stop_loss_shift,
+      });
+    }
+    return presetRows;
+  }, [classifiedClaims, lives, scenario]);
 
   if (!result) {
     return (
@@ -75,6 +113,7 @@ export function DashboardScreen({ employer, scenario, result, classifiedClaims, 
   // (5K runs, server-side, Postgres-cached) and falls back to inline
   // computation (1K runs, main thread) on localStorage.
   const [liquidityMode, setLiquidityMode] = useState('timing-resample');
+  const [scopeExpanded, setScopeExpanded] = useState(false);
   const { liquidity, loading: liquidityLoading, error: liquidityError, source: liquiditySource } =
     useLiquidity({ employer, scenario, modeledClaims: result?.claims, options: { mode: liquidityMode } });
 
@@ -96,16 +135,25 @@ export function DashboardScreen({ employer, scenario, result, classifiedClaims, 
 
       <ScenarioToggle scenario={scenario} onScenarioChange={onScenarioChange} />
 
-      <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4 text-sm text-amber-900">
-        <div className="flex gap-2">
-          <AlertTriangle size={16} className="text-amber-700 flex-shrink-0 mt-0.5" />
-          <div>
-            <strong>Prototype scope: deterministic classification + stochastic MRL with tail overlay.</strong>
-            <div className="mt-1 leading-relaxed">
-              This build produces the residual fund and the OffPlan stack PEPM (deterministic), plus a Monte Carlo Min Required Liquidity in either timing-resample mode (resamples deterministic claims + Pareto catastrophic tail overlay) or tier-generated mode (events generated fresh from the 12-tier catalog with Poisson/NegBin frequency, run through the full member-aggregating cascade with indemnity offset, aggregate stop-loss corridor, complication recursion, chronic-flag clustering on a pre-sampled chronic member pool, monthly-recurrence Specialty Rx regimen on ~3% of members, and a bimodal Maternity split that prices routine deliveries via cash-pay repricing while NICU complications flow through stop-loss). DPC's clinical effect — monthly-membership absorbing chronic management and PCP catching complication early-warnings — is modeled as a single mitigation factor that shrinks both the per-tier complication probability and the chronic uplift. Stop-loss-eligible (catastrophic) claims spread their cash outflow 1/3 / 1/3 / 1/3 across three months to model adjudication delay + invoice terms; smaller cash-pay claims settle same-month. We take the P95 of max cumulative drawdown across the run set, with bootstrap 95% confidence intervals on every reported percentile. Every Liquidity Spec v1.2 §4 stochastic-layer item is now implemented. The MRL is calibrated to spec-anchored numbers but should still be treated as a directional CFO conversation tool, not as an MGU underwriting submission. The "Risk Margin × Residual" formula in §6.6 of the spec is the deprecated v3.0/v3.1 funding construct retained as an intermediate placeholder.
-            </div>
+      <div className="bg-amber-50 border border-amber-200 rounded-lg mb-4 text-sm text-amber-900">
+        <button
+          onClick={() => setScopeExpanded((s) => !s)}
+          className="w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-amber-100/40 transition rounded-lg"
+        >
+          <AlertTriangle size={16} className="text-amber-700 flex-shrink-0" />
+          <strong className="flex-1">
+            Prototype scope: deterministic classification + stochastic MRL with full Liquidity Spec v1.2 §4 layer.
+          </strong>
+          <span className="text-xs text-amber-700 normal-case font-normal">
+            {scopeExpanded ? "Hide details" : "Show details"}
+          </span>
+          {scopeExpanded ? <ChevronDown size={14} className="text-amber-700" /> : <ChevronRight size={14} className="text-amber-700" />}
+        </button>
+        {scopeExpanded && (
+          <div className="px-4 pb-4 pt-1 leading-relaxed border-t border-amber-200/60 ml-6">
+            This build produces the residual fund and the OffPlan stack PEPM (deterministic), plus a Monte Carlo Min Required Liquidity in either timing-resample mode (resamples deterministic claims + Pareto catastrophic tail overlay) or tier-generated mode (events generated fresh from the 12-tier catalog with Poisson/NegBin frequency, run through the full member-aggregating cascade with indemnity offset, aggregate stop-loss corridor, complication recursion, chronic-flag clustering on a pre-sampled chronic member pool, monthly-recurrence Specialty Rx regimen on ~3% of members, and a bimodal Maternity split that prices routine deliveries via cash-pay repricing while NICU complications flow through stop-loss). DPC's clinical effect — monthly-membership absorbing chronic management and PCP catching complication early-warnings — is modeled as a single mitigation factor that shrinks both the per-tier complication probability and the chronic uplift. Stop-loss-eligible (catastrophic) claims spread their cash outflow 1/3 / 1/3 / 1/3 across three months to model adjudication delay + invoice terms; smaller cash-pay claims settle same-month. We take the P95 of max cumulative drawdown across the run set, with bootstrap 95% confidence intervals on every reported percentile. Every Liquidity Spec v1.2 §4 stochastic-layer item is now implemented. The MRL is calibrated to spec-anchored numbers but should still be treated as a directional CFO conversation tool, not as an MGU underwriting submission. The "Risk Margin × Residual" formula in §6.6 of the spec is the deprecated v3.0/v3.1 funding construct retained as an intermediate placeholder.
           </div>
-        </div>
+        )}
       </div>
 
       <div className="bg-white border border-stone-200 rounded-lg p-6 mb-6">
@@ -204,44 +252,52 @@ export function DashboardScreen({ employer, scenario, result, classifiedClaims, 
           icon={DollarSign} accent="stone"
           label="Historical Claims" value={fmtUSD(a.historical_claims)}
           sub={`${fmtNum(classifiedClaims.length)} lines · for modeling`}
+          tooltip={`Σ allowed_amount over ${fmtNum(classifiedClaims.length)} non-excluded claim lines. The modeling input — what the claims file actually paid out under the OLD model. Not the savings comparison baseline (use Current Total Healthcare Spend for that).`}
         />
         <KPICard
           icon={TrendingDown} accent="emerald"
           label="DPC Eliminated" value={fmtUSD(a.dpc_eliminated)}
           sub={`${fmtPct(a.dpc_eliminated / a.historical_claims)} of historical`}
+          tooltip={`${fmtPct(scenario.dpc_elimination_pct)} of Bucket A (Primary Care, Lab, prevention) absorbed by DPC monthly membership. These dollars disappear under OffPlan — DPC absorbs the visit cost.`}
         />
         <KPICard
           icon={Zap} accent="blue"
           label="Cash-Pay Repricing" value={fmtUSD(a.repriced_savings)}
           sub="Specialty, imaging, procedures"
+          tooltip={`Bucket B compression via cash-pay network. Default: ${fmtPct(1 - scenario.cashpay_discount_factor)} reduction on specialty consults, imaging, ASC procedures, and routine maternity (T11). The network charges transparent contracted rates instead of insurance-billed pricing.`}
         />
         <KPICard
           icon={Activity} accent="violet"
           label="ER + Indemnity Offset"
           value={fmtUSD(a.er_reduction_savings + a.indemnity_offset)}
           sub={`Cash benefits: ${fmtUSD(a.indemnity_offset)}`}
+          tooltip={`ER reduction (${fmtUSD(a.er_reduction_savings)}): ${fmtPct(scenario.er_reduction_pct)} of Bucket C ER spend intercepted by DPC + telehealth + urgent care. Indemnity offset (${fmtUSD(a.indemnity_offset)}): per-event cash benefits applied to ER, hospital admit, hospital day, outpatient surgery, imaging events.`}
         />
         <KPICard
           icon={Shield} accent="rose"
           label="Stop-Loss Shift" value={fmtUSD(a.stop_loss_shift)}
           sub="Above attachment point"
+          tooltip={`Catastrophic dollars above the $${fmtNum(scenario.attachment_point)} member-aggregate attachment, shifted to the specific stop-loss carrier. Aggregated per member first (the spec-mandatory step) — splitting per claim would understate the catastrophic shift.`}
         />
         <KPICard
           icon={Target} accent="amber"
           label="Residual Fund" value={fmtUSD(a.residual_fund)}
           sub={`${fmtUSD(residualPEPM, 2)} PEPM`}
+          tooltip={`Whatever's left on each claim after DPC, repricing, ER reduction, indemnity, and stop-loss have been applied. The dollars the employer actually has to fund out of pocket annually under OffPlan. Per-employee monthly: ${fmtUSD(residualPEPM, 2)}.`}
         />
         <KPICard
           icon={DollarSign} accent="stone"
           label="Total OffPlan PEPM"
           value={fmtUSD(totalOffPlanPEPM, 2)}
           sub={`Membership + PBM/Network/UM + Indemnity + TPA + S/L + Claims Fund`}
+          tooltip={`$${OFFPLAN_FIXED_OVERHEAD_PEPM.toFixed(2)} fixed overhead (membership $185 + TPA $40 + PBM $8 + FirstHealth $5.95 + MedWatch $3.25 + Accident/Indemnity $40) + $${scenario.stop_loss_pepm} stop-loss + $${recommendedPEPM.toFixed(2)} residual claims-fund placeholder (residual PEPM × ${scenario.risk_margin}× risk margin, deprecated v3.0/v3.1 — replaced by stochastic MRL in production).`}
         />
         <KPICard
           icon={Users} accent="emerald"
           label="Estimated Savings"
           value={hasValidBaseline ? fmtUSD(annualSavings) : "—"}
           sub={hasValidBaseline ? `${fmtPct(savingsPct)} reduction` : "Total Healthcare Spend required"}
+          tooltip={hasValidBaseline ? `Current Total Healthcare Spend ($${fmtNum(savingsBaseline)}) − OffPlan Total Annual ($${fmtNum(totalOffPlanAnnual)}). Compares against the all-in current cost (premium for fully insured, total plan cost for self-funded), NOT historical claims spend. Historical claims drive the modeling; total spend drives the savings comparison.` : `Set Current Total Healthcare Spend in Setup to enable savings calculation. The savings baseline must include premium / TPA / network / stop-loss / admin (not just claims) to be a defensible comparison.`}
         />
       </div>
 
@@ -471,21 +527,37 @@ export function DashboardScreen({ employer, scenario, result, classifiedClaims, 
             </tr>
           </thead>
           <tbody>
-            {scenarioComparison.map((s) => (
-              <tr key={s.key} className={`border-b border-stone-100 ${s.name === scenario.name ? "bg-stone-50" : ""}`}>
-                <td className="px-5 py-3">
-                  <div className="font-medium">{s.name}</div>
-                  {s.name === scenario.name && (
-                    <div className="text-xs text-emerald-700">Active</div>
-                  )}
-                </td>
-                <td className="px-5 py-3 text-right font-mono num">{fmtUSD(s.residualFund)}</td>
-                <td className="px-5 py-3 text-right font-mono num">{fmtUSD(s.stopLossShift)}</td>
-                <td className="px-5 py-3 text-right font-mono num">{fmtUSD(s.residualPEPM, 2)}</td>
-                <td className="px-5 py-3 text-right font-mono num">{fmtUSD(s.totalPEPM, 2)}</td>
-                <td className="px-5 py-3 text-right font-mono num font-medium">{fmtUSD(s.annualTotal)}</td>
-              </tr>
-            ))}
+            {scenarioComparison.map((s) => {
+              const isActive = s.isCustom || s.name === scenario.name;
+              const rowClass = s.isCustom
+                ? "border-b border-emerald-100 bg-emerald-50/40"
+                : isActive
+                  ? "border-b border-stone-100 bg-stone-50"
+                  : "border-b border-stone-100";
+              return (
+                <tr key={s.key} className={rowClass}>
+                  <td className="px-5 py-3">
+                    <div className="font-medium flex items-center gap-2">
+                      {s.name}
+                      {s.isCustom && (
+                        <span className="text-[10px] uppercase tracking-wider bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded">Custom</span>
+                      )}
+                    </div>
+                    {isActive && !s.isCustom && (
+                      <div className="text-xs text-emerald-700">Active</div>
+                    )}
+                    {s.isCustom && (
+                      <div className="text-xs text-emerald-700">Active · differs from presets</div>
+                    )}
+                  </td>
+                  <td className="px-5 py-3 text-right font-mono num">{fmtUSD(s.residualFund)}</td>
+                  <td className="px-5 py-3 text-right font-mono num">{fmtUSD(s.stopLossShift)}</td>
+                  <td className="px-5 py-3 text-right font-mono num">{fmtUSD(s.residualPEPM, 2)}</td>
+                  <td className="px-5 py-3 text-right font-mono num">{fmtUSD(s.totalPEPM, 2)}</td>
+                  <td className="px-5 py-3 text-right font-mono num font-medium">{fmtUSD(s.annualTotal)}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -551,7 +623,7 @@ function RatioCard({ label, value, sub }) {
   );
 }
 
-function KPICard({ icon: Icon, accent, label, value, sub }) {
+function KPICard({ icon: Icon, accent, label, value, sub, tooltip }) {
   const accents = {
     stone:   "text-stone-700 bg-stone-100",
     emerald: "text-emerald-700 bg-emerald-100",
@@ -561,7 +633,7 @@ function KPICard({ icon: Icon, accent, label, value, sub }) {
     rose:    "text-rose-700 bg-rose-100",
   };
   return (
-    <div className="bg-white border border-stone-200 rounded-lg p-4">
+    <div className="bg-white border border-stone-200 rounded-lg p-4 group relative" title={tooltip || undefined}>
       <div className="flex items-center gap-2 mb-3">
         <div className={`w-6 h-6 rounded grid place-items-center ${accents[accent]}`}>
           <Icon size={12} />
@@ -570,6 +642,11 @@ function KPICard({ icon: Icon, accent, label, value, sub }) {
       </div>
       <div className="font-mono num text-2xl text-stone-900 mb-1">{value}</div>
       <div className="text-xs text-stone-500">{sub}</div>
+      {tooltip && (
+        <div className="absolute z-50 left-0 right-0 top-full mt-1 bg-stone-900 text-white text-xs rounded p-2.5 leading-relaxed shadow-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity">
+          {tooltip}
+        </div>
+      )}
     </div>
   );
 }

@@ -550,6 +550,9 @@ export default function App() {
         {screen === SCREENS.SCENARIO && (
           <ScenarioScreen
             scenario={activeScenario}
+            employer={activeEmployer}
+            result={result}
+            classifiedClaims={classifiedClaims}
             onChange={saveScenario}
             onPreset={async (key) => { await saveScenario({ ...SCENARIO_PRESETS[key] }); }}
           />

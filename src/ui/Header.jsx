@@ -2,12 +2,16 @@ import { Upload, Database, Sliders, BarChart3, FileDown, Layers, Settings } from
 import { SCREENS } from '../screens/index.js';
 
 export function Header({ screen, setScreen, activeEmployer, clearEmployer }) {
+  // Numbered to give the user a clear sense of progression through the
+  // typical analysis flow. Setup is implicitly step 1 (the Cases entry
+  // point handles employer selection / setup); the post-setup workflow
+  // numbers from there.
   const navItems = activeEmployer ? [
-    { id: SCREENS.UPLOAD,    label: "Data",      icon: Upload },
-    { id: SCREENS.CLASSIFY,  label: "Classify",  icon: Database },
-    { id: SCREENS.SCENARIO,  label: "Scenario",  icon: Sliders },
-    { id: SCREENS.DASHBOARD, label: "Dashboard", icon: BarChart3 },
-    { id: SCREENS.REPORT,    label: "Report",    icon: FileDown },
+    { id: SCREENS.UPLOAD,    step: 1, label: "Data",      icon: Upload },
+    { id: SCREENS.CLASSIFY,  step: 2, label: "Classify",  icon: Database },
+    { id: SCREENS.SCENARIO,  step: 3, label: "Scenario",  icon: Sliders },
+    { id: SCREENS.DASHBOARD, step: 4, label: "Dashboard", icon: BarChart3 },
+    { id: SCREENS.REPORT,    step: 5, label: "Report",    icon: FileDown },
   ] : [];
 
   return (
@@ -47,6 +51,13 @@ export function Header({ screen, setScreen, activeEmployer, clearEmployer }) {
                   : "text-stone-600 hover:bg-stone-100"
               }`}
             >
+              <span
+                className={`text-[10px] font-mono num leading-none w-4 text-center ${
+                  screen === item.id ? "text-stone-400" : "text-stone-400"
+                }`}
+              >
+                {item.step}
+              </span>
               <item.icon size={14} />
               {item.label}
             </button>
