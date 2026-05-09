@@ -133,15 +133,15 @@ export const SCENARIO_PRESETS = {
 // Membership locked at $185 (down from prior $195 era). Other components are
 // confirmed partner pricing or pre-launch working assumptions; flagged below.
 export const OFFPLAN_MEMBERSHIP_PEPM = 185;       // Locked
-export const TPA_PEPM = 40;                       // Yuzu confirmed
-export const PBM_ADMIN_PEPM = 8;                  // Working assumption, finalize w/ Yuzu PBM RFP
-export const FIRSTHEALTH_PEPM = 5.95;             // Yuzu rate card, confirmed
-export const MEDWATCH_PEPM = 3.25;                // Yuzu rate card, confirmed
-export const ACCIDENT_INDEMNITY_PEPM = 40;        // Working assumption, finalize w/ TownHealth or equivalent
+export const TPA_PEPM = 40;                       // TPA partner, confirmed
+export const PBM_ADMIN_PEPM = 8;                  // Working assumption, finalize via PBM RFP
+export const NETWORK_ACCESS_PEPM = 5.95;          // PPO network rate card, confirmed
+export const UM_CM_PEPM = 3.25;                   // UM/CM vendor rate card, confirmed
+export const ACCIDENT_INDEMNITY_PEPM = 40;        // Working assumption, finalize w/ indemnity carrier
 // Sum of the above (excluding stop-loss + claims fund, which are scenario-dependent).
 export const OFFPLAN_FIXED_OVERHEAD_PEPM =
   OFFPLAN_MEMBERSHIP_PEPM + TPA_PEPM + PBM_ADMIN_PEPM +
-  FIRSTHEALTH_PEPM + MEDWATCH_PEPM + ACCIDENT_INDEMNITY_PEPM; // 282.20
+  NETWORK_ACCESS_PEPM + UM_CM_PEPM + ACCIDENT_INDEMNITY_PEPM; // 282.20
 
 // Event tier catalog for the v2 stochastic mode (Liquidity Spec v1.2 §4).
 // Each tier defines:

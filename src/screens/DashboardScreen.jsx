@@ -8,8 +8,8 @@ import {
   OFFPLAN_MEMBERSHIP_PEPM,
   TPA_PEPM,
   PBM_ADMIN_PEPM,
-  FIRSTHEALTH_PEPM,
-  MEDWATCH_PEPM,
+  NETWORK_ACCESS_PEPM,
+  UM_CM_PEPM,
   ACCIDENT_INDEMNITY_PEPM,
   OFFPLAN_FIXED_OVERHEAD_PEPM,
   DEFAULT_CASH_PRICES,
@@ -290,7 +290,7 @@ export function DashboardScreen({ employer, scenario, result, classifiedClaims, 
           label="Total OffPlan PEPM"
           value={fmtUSD(totalOffPlanPEPM, 2)}
           sub={`Membership + PBM/Network/UM + Indemnity + TPA + S/L + Claims Fund`}
-          tooltip={`$${OFFPLAN_FIXED_OVERHEAD_PEPM.toFixed(2)} fixed overhead (membership $185 + TPA $40 + PBM $8 + FirstHealth $5.95 + MedWatch $3.25 + Accident/Indemnity $40) + $${scenario.stop_loss_pepm} stop-loss + $${recommendedPEPM.toFixed(2)} residual claims-fund placeholder (residual PEPM × ${scenario.risk_margin}× risk margin, deprecated v3.0/v3.1 — replaced by stochastic MRL in production).`}
+          tooltip={`$${OFFPLAN_FIXED_OVERHEAD_PEPM.toFixed(2)} fixed overhead (membership $${OFFPLAN_MEMBERSHIP_PEPM} + TPA $${TPA_PEPM} + PBM $${PBM_ADMIN_PEPM} + Network $${NETWORK_ACCESS_PEPM} + UM/CM $${UM_CM_PEPM} + Accident/Indemnity $${ACCIDENT_INDEMNITY_PEPM}) + $${scenario.stop_loss_pepm} stop-loss + $${recommendedPEPM.toFixed(2)} residual claims-fund placeholder (residual PEPM × ${scenario.risk_margin}× risk margin, deprecated v3.0/v3.1 — replaced by stochastic MRL in production).`}
         />
         <KPICard
           icon={Users} accent="emerald"

@@ -7,8 +7,8 @@ import {
   OFFPLAN_MEMBERSHIP_PEPM,
   TPA_PEPM,
   PBM_ADMIN_PEPM,
-  FIRSTHEALTH_PEPM,
-  MEDWATCH_PEPM,
+  NETWORK_ACCESS_PEPM,
+  UM_CM_PEPM,
   ACCIDENT_INDEMNITY_PEPM,
 } from '../constants.js';
 import { useLiquidity } from '../hooks/useLiquidity.js';
@@ -24,8 +24,8 @@ export function ReportScreen({ employer, scenario, result, classifiedClaims, inp
   const totalOffPlanPEPM =
     OFFPLAN_MEMBERSHIP_PEPM +
     PBM_ADMIN_PEPM +
-    FIRSTHEALTH_PEPM +
-    MEDWATCH_PEPM +
+    NETWORK_ACCESS_PEPM +
+    UM_CM_PEPM +
     ACCIDENT_INDEMNITY_PEPM +
     TPA_PEPM +
     scenario.stop_loss_pepm +
@@ -249,18 +249,18 @@ export function ReportScreen({ employer, scenario, result, classifiedClaims, inp
             </tr>
             <tr className="border-b border-stone-100">
               <td className="px-4 py-3 font-medium">PBM Admin</td>
-              <td className="px-4 py-3 text-stone-600">Transparent pass-through PBM admin · working assumption (Yuzu RFP)</td>
+              <td className="px-4 py-3 text-stone-600">Transparent pass-through PBM admin · working assumption (PBM RFP)</td>
               <td className="px-4 py-3 text-right font-mono num">{fmtUSD(PBM_ADMIN_PEPM, 2)}</td>
             </tr>
             <tr className="border-b border-stone-100">
-              <td className="px-4 py-3 font-medium">FirstHealth Network Access</td>
-              <td className="px-4 py-3 text-stone-600">OOA fallback network · Yuzu rate card</td>
-              <td className="px-4 py-3 text-right font-mono num">{fmtUSD(FIRSTHEALTH_PEPM, 2)}</td>
+              <td className="px-4 py-3 font-medium">PPO Network Access</td>
+              <td className="px-4 py-3 text-stone-600">Out-of-area fallback network · rate card confirmed</td>
+              <td className="px-4 py-3 text-right font-mono num">{fmtUSD(NETWORK_ACCESS_PEPM, 2)}</td>
             </tr>
             <tr className="border-b border-stone-100">
-              <td className="px-4 py-3 font-medium">MedWatch UM/CM</td>
-              <td className="px-4 py-3 text-stone-600">Inpatient + outpatient utilization & case management · Yuzu rate card</td>
-              <td className="px-4 py-3 text-right font-mono num">{fmtUSD(MEDWATCH_PEPM, 2)}</td>
+              <td className="px-4 py-3 font-medium">UM/CM Vendor</td>
+              <td className="px-4 py-3 text-stone-600">Inpatient + outpatient utilization & case management · rate card confirmed</td>
+              <td className="px-4 py-3 text-right font-mono num">{fmtUSD(UM_CM_PEPM, 2)}</td>
             </tr>
             <tr className="border-b border-stone-100">
               <td className="px-4 py-3 font-medium">Accident + Hospital Indemnity</td>
@@ -268,7 +268,7 @@ export function ReportScreen({ employer, scenario, result, classifiedClaims, inp
               <td className="px-4 py-3 text-right font-mono num">{fmtUSD(ACCIDENT_INDEMNITY_PEPM, 2)}</td>
             </tr>
             <tr className="border-b border-stone-100">
-              <td className="px-4 py-3 font-medium">TPA (Yuzu)</td>
+              <td className="px-4 py-3 font-medium">TPA</td>
               <td className="px-4 py-3 text-stone-600">Claims administration for non-DPC services · confirmed</td>
               <td className="px-4 py-3 text-right font-mono num">{fmtUSD(TPA_PEPM, 2)}</td>
             </tr>
