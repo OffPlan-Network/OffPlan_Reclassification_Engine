@@ -23,6 +23,7 @@ import { Header } from './ui/Header.jsx';
 import { Toast } from './ui/Toast.jsx';
 import { SCREENS } from './screens/index.js';
 import { CasesScreen } from './screens/CasesScreen.jsx';
+import { OverviewScreen } from './screens/OverviewScreen.jsx';
 import { SetupScreen } from './screens/SetupScreen.jsx';
 import { UploadScreen } from './screens/UploadScreen.jsx';
 import { ClassifyScreen } from './screens/ClassifyScreen.jsx';
@@ -76,6 +77,7 @@ export default function App() {
       if (k === '?') { setShortcutsOpen((s) => !s); e.preventDefault(); return; }
       if (k === 'Escape') { if (shortcutsOpen) setShortcutsOpen(false); return; }
       if (k.toLowerCase() === 'h') { setScreen(SCREENS.CASES); return; }
+      if (k.toLowerCase() === 'o') { setScreen(SCREENS.OVERVIEW); return; }
 
       // Step keys 1-5 only fire when a case is open.
       if (!activeEmployerId) return;
@@ -498,6 +500,9 @@ export default function App() {
             isPersistent={db.isPersistent()}
           />
         )}
+        {screen === SCREENS.OVERVIEW && (
+          <OverviewScreen onStart={() => setScreen(SCREENS.CASES)} />
+        )}
         {screen === SCREENS.SETUP && (
           <SetupScreen
             initial={activeEmployer}
@@ -661,6 +666,7 @@ function ShortcutsOverlay({ onClose, hasActiveCase }) {
     { key: '?', desc: 'Toggle this shortcut help' },
     { key: 'Esc', desc: 'Close this help' },
     { key: 'H', desc: 'Return to Cases home' },
+    { key: 'O', desc: 'Open the OffPlan overview' },
     ...(hasActiveCase ? [
       { key: '1', desc: 'Data (upload claims)' },
       { key: '2', desc: 'Classify' },

@@ -1,4 +1,4 @@
-import { Upload, Database, Sliders, BarChart3, FileDown, Layers, Settings } from 'lucide-react';
+import { Upload, Database, Sliders, BarChart3, FileDown, Layers, Settings, BookOpen } from 'lucide-react';
 import { SCREENS } from '../screens/index.js';
 
 export function Header({ screen, setScreen, activeEmployer, clearEmployer, onShowShortcuts }) {
@@ -61,9 +61,19 @@ export function Header({ screen, setScreen, activeEmployer, clearEmployer, onSho
             );
           })}
           <button
+            onClick={() => setScreen(SCREENS.OVERVIEW)}
+            title="What OffPlan does (O)"
+            className={`ml-1 md:ml-2 flex items-center gap-1.5 md:gap-2 px-2 md:px-3 h-9 text-sm rounded transition ${
+              screen === SCREENS.OVERVIEW ? "bg-stone-900 text-white" : "text-stone-600 hover:bg-stone-100"
+            }`}
+          >
+            <BookOpen size={14} />
+            <span className="hidden md:inline">Overview</span>
+          </button>
+          <button
             onClick={() => setScreen(SCREENS.ADMIN)}
             title="Admin"
-            className={`ml-1 md:ml-2 flex items-center gap-1.5 md:gap-2 px-2 md:px-3 h-9 text-sm rounded transition ${
+            className={`ml-1 flex items-center gap-1.5 md:gap-2 px-2 md:px-3 h-9 text-sm rounded transition ${
               screen === SCREENS.ADMIN ? "bg-stone-900 text-white" : "text-stone-600 hover:bg-stone-100"
             }`}
           >

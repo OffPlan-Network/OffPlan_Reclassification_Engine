@@ -1,5 +1,6 @@
 export const SCREENS = {
   CASES:     "cases",
+  OVERVIEW:  "overview",
   SETUP:     "setup",
   UPLOAD:    "upload",
   CLASSIFY:  "classify",
