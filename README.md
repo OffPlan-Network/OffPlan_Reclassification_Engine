@@ -2,7 +2,7 @@
 
 An interactive, single-page React demo of the **OffPlan Claims Reclassification Engine**: a five-stage classification cascade that takes an employer's historical healthcare claims, reclassifies every dollar under the OffPlan architecture (DPC eliminated → cash-pay repriced → indemnity offset → stop-loss shifted → residual funded), and surfaces the resulting employer-cost story.
 
-This codebase is the **deterministic classification layer** plus a **two-mode stochastic capital layer** (timing-resample + tier-generated v3) of the engine described in `docs/01_OffPlan_Engine_Master_Specification_v33.docx` and `docs/06_OffPlan_Engine_Liquidity_Capital_Modeling_Spec_v12.docx`. Heavy-tail Pareto events, NegBin frequency for over-dispersed tiers, complication probability + lag, chronic-flag clustering with a DPC clinical-mitigation factor, aggregate stop-loss corridor, and bootstrap 95% CIs on every percentile are all live; the T10 monthly-recurrence model and the T11 bimodal Maternity/NICU split remain deferred — see §11 for the per-metric status.
+This codebase is the **deterministic classification layer** plus a **two-mode stochastic capital layer** (timing-resample + tier-generated v6) of the engine described in `docs/01_OffPlan_Engine_Master_Specification_v33.docx` and `docs/06_OffPlan_Engine_Liquidity_Capital_Modeling_Spec_v12.docx`. Every Liquidity Spec v1.2 §4 stochastic-layer item is implemented: heavy-tail Pareto, NegBin frequency for over-dispersed tiers, indemnity offset, member-aggregate stop-loss, aggregate stop-loss corridor, complication probability + lag, chronic-flag clustering with DPC clinical mitigation, per-employer chronic-prevalence calibration, stop-loss claim payment spread, T10 monthly-recurrence Specialty Rx regimen, T11/T12 bimodal Maternity/NICU split, and bootstrap 95% CIs on every percentile — see §11 for the per-metric status.
 
 The companion docs in `docs/` are the authoritative spec; this README is the operator-facing summary of how the running app implements them.
 
@@ -356,19 +356,25 @@ The shipped demo numbers above reflect a multi-pass re-baseline. The primary anc
 
 ## 9. Scenarios
 
-Three presets in `src/constants.js → SCENARIO_PRESETS`. All eight knobs are editable on the Scenario screen; admin edits create new immutable rule/pricing/indemnity versions and lock to scenarios at creation time.
+Three presets in `src/constants.js → SCENARIO_PRESETS`. All eleven knobs are editable on the Scenario screen, organized into four sections (Reduction Levers, Stop-Loss & Risk Layer, Clinical & Indemnity Layer, Deprecated Funding Placeholder). The screen renders a live headline strip showing Net Savings / Residual Fund / OffPlan Total / MRL P95 updating in real time as sliders move, and supports Copy / Import as JSON for sharing tuned scenarios across users. Admin edits create new immutable rule/pricing/indemnity versions and lock to scenarios at creation time.
 
-|                            | Conservative | **Expected** | Aggressive |
-|---                         |---:          |---:          |---:        |
-| `dpc_elimination_pct`      | 70 %         | **85 %**     | 95 %       |
-| `urgent_care_reduction_pct`| 50 %         | **65 %**     | 80 %       |
-| `er_reduction_pct`         | 10 %         | **25 %**     | 40 %       |
-| `cashpay_discount_factor`  | 70 %         | **50 %**     | 40 %       |
-| `attachment_point`         | $75K         | **$50K**     | $50K       |
-| `stop_loss_pepm`           | $130         | **$100**     | $85        |
-| `risk_margin`              | 1.40×        | **1.25×**    | 1.10×      |
+|                                | Conservative | **Expected** | Aggressive |
+|---                             |---:          |---:          |---:        |
+| `dpc_elimination_pct`          | 70 %         | **85 %**     | 95 %       |
+| `urgent_care_reduction_pct`    | 50 %         | **65 %**     | 80 %       |
+| `er_reduction_pct`             | 10 %         | **25 %**     | 40 %       |
+| `cashpay_discount_factor`      | 70 %         | **50 %**     | 40 %       |
+| `attachment_point`             | $75K         | **$50K**     | $50K       |
+| `stop_loss_pepm`               | $130         | **$100**     | $85        |
+| `risk_margin` †                | 1.40×        | **1.25×**    | 1.10×      |
+| `indemnity_enabled`            | on           | **on**       | on         |
+| `aggregate_stop_loss_enabled`  | on           | **on**       | on         |
+| `aggregate_attachment_pct`     | 1.25×        | **1.25×**    | 1.20×      |
+| `dpc_clinical_mitigation_pct`  | 20 %         | **30 %**     | 45 %       |
 
-Conservative is underwriting-safe; Expected is the default for employer conversations; Aggressive demonstrates the structural ceiling of the model.
+† Deprecated v3.0/v3.1 placeholder retained until stochastic MRL fully replaces the residual claims-fund construct (see §6, §11).
+
+Conservative is underwriting-safe; Expected is the default for employer conversations; Aggressive demonstrates the structural ceiling of the model. The Dashboard's Scenario Comparison table renders a fourth `(custom)` row alongside the three presets when the active scenario diverges from any of them, so a tuned variant can be compared side-by-side with the stock presets without losing the comparison view.
 
 ---
 
@@ -384,16 +390,16 @@ Every ingested claim is stamped with the IDs of the currently active versions, s
 
 ---
 
-## 11. Stochastic liquidity layer — v3 scope
+## 11. Stochastic liquidity layer — v6 (Spec v1.2 §4 complete)
 
 The Monte Carlo in `src/engine/stochastic.js` ships **two simulation modes**, surfaced as a toggle on the Dashboard. They answer subtly different questions:
 
 | Mode | Question answered | Calibration anchor | When to use |
 |---|---|---|---|
 | **`timing-resample`** (default) | "Given this employer's actual claims, how much liquidity did they need to weather that year's worst-month drawdown?" | The deterministic engine's residual_fund (matches by construction) | Primary number for CFO conversations; calibrated to actual claims |
-| **`tier-generated`** (v3) | "Given a typical SMB at this employer's size, how much liquidity should they expect?" | Industry-typical SMB event mix (`EVENT_TIER_CATALOG` in `src/constants.js`) | Sensitivity check; drift-pct shows how this employer compares to the SMB norm |
+| **`tier-generated`** (v6) | "Given a typical SMB at this employer's size, how much liquidity should they expect?" | Industry-typical SMB event mix (`EVENT_TIER_CATALOG` in `src/constants.js`) | Sensitivity check; drift-pct shows how this employer compares to the SMB norm |
 
-The catalog has 11 tiers per Spec v1.2 §4 (T1 primary care through T11 maternity), with Poisson frequency × log-normal cost for non-catastrophic tiers, NegBin frequency for inpatient T8 (over-dispersion), and Pareto cost for T8/T9. Sampled events run through the full member-aggregating cascade (per-event reduction → indemnity offset → member-aggregate stop-loss → aggregate corridor) — same five-stage logic the deterministic engine uses, inlined for performance. 1,000 runs land in <500 ms client-side; 5,000 runs in <2s server-side.
+The catalog has 12 tiers per Spec v1.2 §4 (T1 primary care through T12 NICU complications, with T11/T12 carrying the bimodal Maternity routine/NICU split), with Poisson frequency × log-normal cost for non-catastrophic tiers, NegBin frequency for inpatient T8 (over-dispersion), and Pareto cost for T8/T9. T10 specialty Rx uses a monthly-recurrence regimen model instead of per-event sampling. Sampled events run through the full member-aggregating cascade (per-event reduction → indemnity offset → member-aggregate stop-loss → aggregate corridor) — same five-stage logic the deterministic engine uses, inlined for performance. 1,000 runs land in <500 ms client-side; 5,000 runs in <2s server-side.
 
 **Both modes share:**
 - Pareto catastrophic event tail overlay in timing-resample mode (default λ=0.005 per member-year, scale=$50K, shape=1.5 → mean $150K)
@@ -414,7 +420,7 @@ The catalog has 11 tiers per Spec v1.2 §4 (T1 primary care through T11 maternit
 | Reimbursement-lag Pre-Reimbursement Outflow | **Computed** — fixed 3-month lag (75-day approximation) |
 | Stop-loss claim payment spread (adjudication delay + invoice terms) | **Computed** — `STOP_LOSS_PAYMENT_SCHEDULE = [1/3, 1/3, 1/3]` in `src/constants.js`; applied to claims with `stop_loss_amount > 0` only. Reduces MRL by 30–45% vs single-month outflow on catastrophic-heavy populations |
 | Heavy-tail Pareto for inpatient catastrophic events | **Computed** — overlay in timing-resample (default λ=0.005/member-yr, scale=$50K, shape=1.5); native to T8/T9 in tier-generated |
-| Full 11-tier event catalog with per-tier Poisson frequencies | **Computed** — `EVENT_TIER_CATALOG` in `src/constants.js` is the v2 mode's source of truth |
+| Full 12-tier event catalog with per-tier Poisson/NegBin frequencies | **Computed** — `EVENT_TIER_CATALOG` in `src/constants.js` is the tier-generated mode's source of truth (T11/T12 carry the bimodal Maternity split; T10 uses a monthly-recurrence regimen model) |
 | Calibration drift indicator | **Computed** — drift_pct + out_of_band flag returned per simulation; UI banner fires at ±10% |
 | NegBin frequency for over-dispersed tiers | **Computed** — T8 (inpatient) uses NegBin via Gamma-Poisson mixture; other tiers remain Poisson |
 | Indemnity offset in tier-generated mode | **Computed** — applies the same per-member per-event-type benefit caps the deterministic cascade uses |
@@ -475,8 +481,6 @@ For production employers without enriched ICD-10 data, the **manual prevalence o
 
 **DPC clinical mitigation factor.** Both complication probability and chronic uplift are scaled by `(1 − scenario.dpc_clinical_mitigation_pct)` — a single knob that captures DPC's clinical effect on event frequency. The model is: monthly-membership primary care absorbs chronic management (so chronic flares route through PCP rather than ER/inpatient) and PCP catches complication early-warnings before they cascade. Preset values: conservative 0.20, expected 0.30, aggressive 0.45. The Pareto tail overlay in timing-resample mode is **not** mitigated — it represents truly catastrophic events (cancer diagnosis, major trauma) where DPC's preventive leverage is weak.
 
-**Per-employer chronic-prevalence calibration.** On every claims ingestion, `estimateChronicPrevalence()` (in `src/engine/calibration.js`) computes the share of unique members whose claims include either a Bucket E event or > $5K of cumulative non-Bucket-A spend, and stamps it on the employer record as `chronic_prevalence` (with `chronic_prevalence_source: 'auto'`). The Setup screen exposes a manual override that flips the source to `'manual'`, after which auto-estimation no longer overwrites it. The stochastic engine reads `employer.chronic_prevalence` and falls back to the population default only when the override is unset or out of range. The `chronic_clustering` block in the result surfaces both the value used and its source.
-
 **Bottom line for stakeholders:** this build implements every Liquidity Spec v1.2 §4 stochastic-layer item: heavy-tail Pareto for catastrophic, NegBin for over-dispersed inpatient, indemnity offset, member-aggregate stop-loss split, aggregate stop-loss corridor, complication probability + lag, chronic clustering with DPC clinical mitigation, per-employer chronic-prevalence calibration, stop-loss claim payment spread (1/3 over 3 months for adjudication delay + invoice terms), monthly-recurrence Specialty Rx regimen for biologic/specialty concentration, bimodal Maternity (routine cash-pay repriced + NICU catastrophic), and bootstrap 95% confidence intervals on every reported percentile. CER lands at 4.1–7.7× under Expected across the demos, P99 in the right order of magnitude for SMB populations, drift_pct ≈ 0% in tier-generated mode (closed-form tracks the simulator). It supports CFO conversations and prospect demos at this level of fidelity. For production-grade MGU underwriting, employer-supplied high-cost-claimant data or full ICD-10 ingestion should replace the auto-estimated chronic prevalence — the `CHRONIC_CONDITION_CATALOG` and `identifyExpensiveChronicMembers` stub are ready for that hydration.
 
 ---
@@ -510,7 +514,7 @@ src/
   App.jsx                  Single source of truth: all state, screen routing, ingestion, version cutting,
                            chronic-prevalence auto-calibration on every claims ingestion
   constants.js             DEFAULT_CPT_RULES, cash prices, indemnity benefits, reprice factors, presets,
-                           EVENT_TIER_CATALOG (11 tiers), CHRONIC_PREVALENCE, CHRONIC_TIER_UPLIFT,
+                           EVENT_TIER_CATALOG (12 tiers; T11/T12 = bimodal Maternity), CHRONIC_PREVALENCE, CHRONIC_TIER_UPLIFT,
                            CATASTROPHIC_TAIL_DEFAULTS, OFFPLAN_* stack constants
   demo-cases.js            Three pre-built employer cases (ABC, XYZ, Riverdale)
   storage.js               Two-backend db wrapper (localStorage / api), switched by VITE_STORAGE_BACKEND
@@ -519,7 +523,7 @@ src/
     calculate.js           runCalculation — the deterministic five-stage cascade
     synthetic.js           generateSyntheticClaims (Mode 3), decomposePartialSummary (Mode 2)
     stochastic.js          simulateLiquidity — two-mode Monte Carlo MRL simulator
-                           (timing-resample + tier-generated v3); chronic clustering, complications,
+                           (timing-resample + tier-generated v6); chronic clustering, complications,
                            NegBin, aggregate corridor, bootstrap CIs, DPC mitigation
     calibration.js         estimateChronicPrevalence — auto-calibrates per-employer chronic share
                            from classified claims (E-bucket events or > $5K non-A spend)

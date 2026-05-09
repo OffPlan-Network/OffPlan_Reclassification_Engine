@@ -41,6 +41,10 @@ Storage keys (same shape under both backends):
 - `global:pricing_versions`, `global:rule_versions`, `global:indemnity_versions`, `global:benchmark_versions` — versioned admin tables (cut as new immutable rows; previous rows flip to `archived`)
 - `global:audit_log` — capped at 500 entries, prepended
 
+UI preferences (raw `localStorage`, not routed through `db`):
+
+- `offplan_engine:demo_banner_dismissed` — boolean, set when the user closes the "Static demo · No backend · Not for PHI" banner on the Cases screen. Persists across reloads.
+
 Switching employers calls `loadEmployer(id)` which rehydrates all of the above into React state.
 
 ### The cascade (`src/engine/calculate.js`)
@@ -86,7 +90,7 @@ CPT ranges are string comparisons, not numeric — they intentionally support al
 Monte Carlo simulator that sizes Min Required Liquidity (MRL) under the OffPlan funding model. Two modes, both pure functions (run unchanged in the browser or in a Vercel Function):
 
 - **`timing-resample`** (default) — resamples each deterministic claim onto a uniform-random month and adds a Pareto catastrophic-event tail overlay. Calibrated by construction to the deterministic engine's `residual_fund`. Use as the primary number for CFO conversations.
-- **`tier-generated`** (v3) — generates events fresh per run from the 11-tier `EVENT_TIER_CATALOG` (Poisson or NegBin frequency × log-normal or Pareto cost), runs them through the full member-aggregating cascade (per-event reduction → indemnity offset → member-aggregate stop-loss → aggregate corridor), and reports a calibration `drift_pct` vs the deterministic residual.
+- **`tier-generated`** (v6) — generates events fresh per run from the 12-tier `EVENT_TIER_CATALOG` (Poisson or NegBin frequency × log-normal or Pareto cost; T11 + T12 are the bimodal Maternity routine/NICU split), runs them through the full member-aggregating cascade (per-event reduction → indemnity offset → member-aggregate stop-loss → aggregate corridor), and reports a calibration `drift_pct` vs the deterministic residual.
 
 Tier-generated mode also models:
 
@@ -164,6 +168,16 @@ Client-side liquidity is fetched via `src/hooks/useLiquidity.js`. The hook switc
 ### Screens & hooks
 
 `src/screens/` — one component per route. `SCREENS` enum in `src/screens/index.js`. Navigation is state in `App.jsx` (`screen` + `setScreen`); there is no router. Order in the typical flow: Cases → Setup → Upload → Classify → Scenario → Dashboard → Report. Admin is the side door.
+
+The header (`src/ui/Header.jsx`) shows numbered nav steps (1=Data, 2=Classify, 3=Scenario, 4=Dashboard, 5=Report) with icons. On small screens it collapses to icons-only with `flex-wrap` to handle overflow. A `?` button at the right of the nav opens the keyboard-shortcut overlay.
+
+Screen-specific UX notes worth knowing when editing:
+
+- **SetupScreen** is organized into 5 numbered `SetupSection` cards (Identity, Population, Funding model, Claims period, Chronic prevalence — last one is optional). The `SetupSection` helper component is local to the file. Form-state still lives in a single `form` object in `useState`; the sectioning is purely visual.
+- **ScenarioScreen** has a live preview headline strip (Net Savings / Residual Fund / OffPlan Total / MRL P95) that updates as sliders move. It renders all 11 scenario knobs grouped into 4 sections (Reduction Levers, Stop-Loss & Risk Layer, Clinical & Indemnity Layer, Deprecated Funding Placeholder). Includes Copy/Import-as-JSON for sharing tuned scenarios. The MRL number comes from the same `useLiquidity` hook the Dashboard uses, so when the storage backend is the API path both screens share the cached server-side simulation. Detects "(modified)" state when the active scenario diverges from any preset and offers a one-click reset.
+- **DashboardScreen** renders headline savings + claims breakdown above the liquidity hero (this ordering was deliberate; see commit `6fee69a`). All 8 KPI cards have hover tooltips explaining the calculation behind each number. The Scenario Comparison table includes a 4th "(custom)" row when the active scenario diverges from the three presets. The amber prototype-scope banner is collapsed by default with a click-to-expand details toggle.
+
+Keyboard shortcuts are wired via a global `keydown` listener in `App.jsx` that skips when an input/textarea/select is focused: `1`–`5` jump to the numbered nav steps, `H` returns to Cases, `A` opens Admin, `?` toggles the help overlay (rendered as a focus-trapped modal), `Esc` closes the overlay. Shortcuts respect modifier keys (Ctrl/Cmd/Alt are ignored so browser shortcuts still work). The overlay component (`ShortcutsOverlay`) is local to `App.jsx`.
 
 `src/hooks/useLiquidity.js` is currently the only hook. It owns the liquidity-fetch state machine (idle / loading / local / api), automatic re-fetch on input change, and stale-response guarding via an in-flight fingerprint ref.
 
