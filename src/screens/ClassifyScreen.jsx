@@ -1,11 +1,15 @@
-import { useState, useMemo } from 'react';
-import { AlertCircle, Eye, EyeOff } from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
+import { AlertCircle, ChevronLeft, ChevronRight, Eye, EyeOff } from 'lucide-react';
 import { fmtUSD, fmtNum, fmtPct } from '../ui/formatters.js';
 import { BucketBadge } from '../ui/BucketBadge.jsx';
+
+const PAGE_SIZE_OPTIONS = [25, 50, 100, 200];
 
 export function ClassifyScreen({ claims, onUpdateClaim, onBulkUpdate }) {
   const [filter, setFilter] = useState("");
   const [bucketFilter, setBucketFilter] = useState("all");
+  const [pageSize, setPageSize] = useState(100);
+  const [page, setPage] = useState(0);
 
   // Roll-up by category — counts BOTH included and excluded so the user
   // sees the full picture, with excluded counts called out separately.
@@ -71,6 +75,15 @@ export function ClassifyScreen({ claims, onUpdateClaim, onBulkUpdate }) {
   const filteredIds = useMemo(() => filtered.map((c) => c.claim_id), [filtered]);
   const filteredAllExcluded = filtered.length > 0 && filtered.every((c) => c.excluded);
   const filteredAllIncluded = filtered.length > 0 && filtered.every((c) => !c.excluded);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  // Snap back if a filter change leaves us past the last page.
+  useEffect(() => {
+    if (page > pageCount - 1) setPage(0);
+  }, [page, pageCount]);
+  const pageStart = page * pageSize;
+  const pageEnd = Math.min(pageStart + pageSize, filtered.length);
+  const pageRows = useMemo(() => filtered.slice(pageStart, pageEnd), [filtered, pageStart, pageEnd]);
 
   const bulkExclude = () => {
     if (!filtered.length) return;
@@ -241,15 +254,56 @@ export function ClassifyScreen({ claims, onUpdateClaim, onBulkUpdate }) {
               </tr>
             </thead>
             <tbody>
-              {filtered.slice(0, 100).map((c) => (
+              {pageRows.map((c) => (
                 <ClaimRow key={c.claim_id} claim={c} onUpdate={onUpdateClaim} />
               ))}
             </tbody>
           </table>
         </div>
-        {filtered.length > 100 && (
-          <div className="px-5 py-3 text-xs text-stone-500 border-t border-stone-200 bg-stone-50">
-            Showing 100 of {fmtNum(filtered.length)} claims. Use search and filters to narrow.
+        {filtered.length > 0 && (
+          <div className="px-5 py-3 border-t border-stone-200 bg-stone-50 flex items-center justify-between flex-wrap gap-3">
+            <div className="text-xs text-stone-500">
+              Showing <span className="font-mono num text-stone-700">{fmtNum(pageStart + 1)}</span>–<span className="font-mono num text-stone-700">{fmtNum(pageEnd)}</span> of <span className="font-mono num text-stone-700">{fmtNum(filtered.length)}</span> claims
+            </div>
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <label className="text-[10px] uppercase tracking-wider text-stone-500 font-semibold">Per page</label>
+                <div className="flex border border-stone-200 rounded overflow-hidden bg-white">
+                  {PAGE_SIZE_OPTIONS.map((n) => (
+                    <button
+                      key={n}
+                      onClick={() => { setPageSize(n); setPage(0); }}
+                      className={`px-2.5 h-7 text-xs font-medium ${
+                        pageSize === n ? "bg-stone-900 text-white" : "text-stone-600 hover:bg-stone-50"
+                      }`}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                  disabled={page === 0}
+                  className="flex items-center justify-center w-7 h-7 border border-stone-200 rounded bg-white text-stone-600 hover:bg-stone-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="Previous page"
+                >
+                  <ChevronLeft size={14} />
+                </button>
+                <div className="text-xs text-stone-600">
+                  Page <span className="font-mono num text-stone-900">{page + 1}</span> of <span className="font-mono num text-stone-900">{pageCount}</span>
+                </div>
+                <button
+                  onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+                  disabled={page >= pageCount - 1}
+                  className="flex items-center justify-center w-7 h-7 border border-stone-200 rounded bg-white text-stone-600 hover:bg-stone-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="Next page"
+                >
+                  <ChevronRight size={14} />
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>
