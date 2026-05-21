@@ -280,6 +280,31 @@ export function DashboardScreen({ employer, scenario, result, classifiedClaims, 
         </div>
       </div>
 
+      {liquidity && liquidity.month_1 && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div className="flex-1 min-w-[220px]">
+              <div className="text-[10px] uppercase tracking-wider text-blue-700 font-semibold mb-1">Month 1 Claims Fund Reserve</div>
+              <div className="text-xs text-blue-900 leading-relaxed">
+                Gross cash outflow in the first month — what the employer needs in the claims fund on day 1, before any contributions or stop-loss reimbursements have built up. Especially relevant when transitioning off fully insured: the fund starts at $0 with no carrier float.
+              </div>
+            </div>
+            <div className="flex items-end gap-6 flex-wrap">
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-blue-600 mb-0.5">Expected</div>
+                <div className="font-display text-3xl text-blue-900 num">{fmtUSD(liquidity.month_1.mean_outflow)}</div>
+                <div className="text-[11px] text-blue-700">mean across {fmtNum(liquidity.meta?.runs || 0)} runs</div>
+              </div>
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-blue-600 mb-0.5">Conservative · P95</div>
+                <div className="font-display text-3xl text-blue-900 num">{fmtUSD(liquidity.month_1.p95_outflow)}</div>
+                <div className="text-[11px] text-blue-700">95th percentile reserve</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="bg-stone-50 border border-stone-200 rounded-lg p-4 mb-6 text-xs text-stone-600">
         <div className="uppercase tracking-wider text-[10px] text-stone-500 mb-1">Deprecated intermediate placeholder (v3.0/v3.1)</div>
         <div className="flex items-baseline gap-3 flex-wrap">

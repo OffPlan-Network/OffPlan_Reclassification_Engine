@@ -24,7 +24,7 @@ export function CasesScreen({ employers, loading, onOpen, onCreateNew, onDelete,
           </h1>
           <p className="text-stone-600 max-w-2xl">
             Each case represents one employer's claims being reconstructed under the OffPlan model.
-            Upload claims, adjust assumptions, and produce the deterministic classification output (residual fund, OffPlan stack PEPM, savings vs current spend). The stochastic capital layer (Minimum Required Liquidity, CER, LCR, SCR) is specified in the Liquidity &amp; Capital Modeling Spec v1.2 and not yet computed in this prototype.
+            Upload claims, adjust assumptions, and produce the deterministic classification output (residual fund, OffPlan stack PEPM, savings vs current spend) alongside the stochastic capital layer (month-1 reserve, annual MRL, CER, LCR, SCR) from the Liquidity &amp; Capital Modeling Spec v1.2.
           </p>
         </div>
         <div className="flex items-center gap-2">

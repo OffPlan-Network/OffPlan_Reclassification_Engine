@@ -104,6 +104,8 @@ Tier-generated mode also models:
 
 Result includes bootstrap 95% CIs on every reported percentile (P50/P75/P90/P95/P99) computed via a 500-resample bootstrap with a derived seed. The tail overlay in timing-resample mode is **not** mitigated by DPC — it represents truly catastrophic events where DPC's preventive leverage is weak.
 
+**Month-1 claims fund reserve** (both modes) — separate from MRL. Per-run `monthlyOutflow[0]` (the gross cash that flows out in the first simulated month, including any Pareto-tail event that lands there) is aggregated across runs and returned as `result.month_1 = { mean_outflow, p50_outflow, p75_outflow, p95_outflow }`. Sizes the claims-fund cash an employer needs on day 1, before any contributions or stop-loss reimbursements (~3-month lag) have built up. Especially load-bearing for fully-insured → OffPlan transitions where the fund starts at $0 with no carrier float. The simulator places claims uniformly across months, so this is a "typical month" proxy; real month-1 of a transition tends to be lighter as members orient to DPC providers — treat the reported number as a conservative reserve sizing. When the simulator's result shape changes (e.g., adding fields like this one), bump `CACHE_VERSION` in `api/liquidity/simulate.js` so old cached entries get re-keyed instead of misread.
+
 Determinism: every random draw goes through a mulberry32 PRNG seeded by FNV-1a hash of `(employer.id, scenario.name, runs, lagMonths, attachmentPoint, prevalence)`. Same inputs → identical output. Bootstrap CIs use a derived seed (main_seed XOR `0xb007517a`) so they're stable too.
 
 ### Calibration (`src/engine/calibration.js`)

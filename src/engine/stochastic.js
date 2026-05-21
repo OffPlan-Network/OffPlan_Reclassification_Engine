@@ -678,6 +678,12 @@ function simulateLiquidityTimingResample({ employer, scenario, modeledClaims, op
   );
 
   const mrls = new Float64Array(runs);
+  // Month-1 gross outflow per run — used to size the claims-fund reserve
+  // an employer needs at the start of month 1 (especially relevant for
+  // fully-insured → OffPlan transitions, where the fund starts at $0 with
+  // no pre-built buffer from prior contributions). Stop-loss reimbursements
+  // arrive ~3 months later so they don't help month-1 cash.
+  const month1Outflows = new Float64Array(runs);
   let monthlyOutflowSum = 0;
   let monthlyOutflowCount = 0;
   let totalTailEvents = 0;
@@ -689,6 +695,7 @@ function simulateLiquidityTimingResample({ employer, scenario, modeledClaims, op
     const r = simulateOnce(claims, monthlyContribution, lagMonths, rng, tailOverlay, paymentSchedule);
     totalTailEvents += r.tailEventCount;
     totalTailGrossOutflow += r.tailGrossOutflow;
+    month1Outflows[i] = r.monthlyOutflow[0];
 
     // Aggregate stop-loss corridor on the realized residual.
     const recovery = applyAggregateStopLoss(r.monthlyReimbursement, r.annualResidual, expectedAnnualResidual, scenario);
@@ -721,6 +728,16 @@ function simulateLiquidityTimingResample({ employer, scenario, modeledClaims, op
 
   const meanMonthlyOutflow = monthlyOutflowCount > 0 ? monthlyOutflowSum / monthlyOutflowCount : 0;
 
+  // Month-1 outflow distribution — sized for the "transitioning off fully
+  // insured, claims fund starts at $0" case where there's no buffer.
+  const sortedM1 = Array.from(month1Outflows).sort((a, b) => a - b);
+  const month1 = {
+    mean_outflow: month1Outflows.reduce((s, x) => s + x, 0) / runs,
+    p50_outflow: percentile(sortedM1, 50),
+    p75_outflow: percentile(sortedM1, 75),
+    p95_outflow: percentile(sortedM1, 95),
+  };
+
   // Bootstrap 95% CIs on each percentile. Uses a fresh PRNG seeded off
   // the main seed so the CI bounds are reproducible.
   const bootstrapRng = mulberry32((seed ^ 0xb007517a) >>> 0);
@@ -747,6 +764,7 @@ function simulateLiquidityTimingResample({ employer, scenario, modeledClaims, op
       level: 0.95,
     },
     mean_monthly_outflow: meanMonthlyOutflow,
+    month_1: month1,
     monthly_contribution: monthlyContribution,
     annual_cash_flow: totalAnnualCashFlow,
     deterministic_cash_flow: deterministicCashFlow,
@@ -911,6 +929,9 @@ function simulateLiquidityTierGenerated({ employer, scenario, modeledClaims, opt
 
   const mrls = new Float64Array(runs);
   const annualResiduals = new Float64Array(runs);
+  // Month-1 gross outflow per run — same purpose as in timing-resample mode
+  // (sizing the claims-fund reserve at start of month 1).
+  const month1Outflows = new Float64Array(runs);
   let monthlyOutflowSum = 0;
   let monthlyOutflowCount = 0;
   let totalEvents = 0;
@@ -927,6 +948,7 @@ function simulateLiquidityTierGenerated({ employer, scenario, modeledClaims, opt
     totalComplications += r.totalComplications;
     totalChronicEvents += r.chronicEventCount;
     totalRegimenMembers += r.regimenMemberCount;
+    month1Outflows[i] = r.monthlyOutflow[0];
     for (let t = 0; t < 12; t++) {
       monthlyOutflowSum += r.monthlyOutflow[t];
       monthlyOutflowCount++;
@@ -959,6 +981,14 @@ function simulateLiquidityTierGenerated({ employer, scenario, modeledClaims, opt
   const meanMonthlyOutflow = monthlyOutflowCount > 0 ? monthlyOutflowSum / monthlyOutflowCount : 0;
   const meanAnnualResidual = annualResiduals.reduce((s, x) => s + x, 0) / runs;
 
+  const sortedM1 = Array.from(month1Outflows).sort((a, b) => a - b);
+  const month1 = {
+    mean_outflow: month1Outflows.reduce((s, x) => s + x, 0) / runs,
+    p50_outflow: percentile(sortedM1, 50),
+    p75_outflow: percentile(sortedM1, 75),
+    p95_outflow: percentile(sortedM1, 95),
+  };
+
   const bootstrapRng = mulberry32((seed ^ 0xb007517a) >>> 0);
   const percentilesCi = bootstrapPercentileCIs(mrls, [50, 75, 90, 95, 99], 500, bootstrapRng);
 
@@ -990,6 +1020,7 @@ function simulateLiquidityTierGenerated({ employer, scenario, modeledClaims, opt
       level: 0.95,
     },
     mean_monthly_outflow: meanMonthlyOutflow,
+    month_1: month1,
     monthly_contribution: monthlyContribution,
     annual_cash_flow: expectedAnnualCashFlow,
     elf,

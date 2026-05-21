@@ -411,6 +411,7 @@ The catalog has 12 tiers per Spec v1.2 §4 (T1 primary care through T12 NICU com
 | Spec metric                       | Status in this build |
 |---                                |---                   |
 | Min Required Liquidity (P95 of max cumulative drawdown) | **Computed** — 1,000 runs, monthly resolution, 3-month stop-loss reimbursement lag |
+| Month-1 claims fund reserve (mean / P50 / P75 / P95 of `monthlyOutflow[0]`) | **Computed** — both modes; sizes the day-1 fund balance for employers transitioning off fully insured, where there's no carrier float and no prior contributions to draw against. Returned as `result.month_1`. |
 | Equivalent Level-Funded Total Cost (ELF) | **Computed** — uses `current_total_healthcare_spend` as the level-funded proxy |
 | Capital Efficiency Ratio (CER = ELF / MRL) | **Computed**          |
 | Liquidity Reduction percentage (1 − MRL/ELF) | **Computed**        |
