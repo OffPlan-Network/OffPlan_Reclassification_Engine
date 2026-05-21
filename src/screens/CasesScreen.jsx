@@ -4,7 +4,7 @@ import { fmtUSD, fmtNum } from '../ui/formatters.js';
 import { EmptyState } from '../ui/EmptyState.jsx';
 import { DEMO_CASES } from '../demo-cases.js';
 
-export function CasesScreen({ employers, loading, onOpen, onCreateNew, onDelete, onLoadDemo, onResetAll, isPersistent }) {
+export function CasesScreen({ employers, loading, onOpen, onCreateNew, onDelete, onLoadDemo, onResetAll }) {
   const [resetting, setResetting] = useState(false);
 
   const handleReset = async () => {
@@ -15,7 +15,7 @@ export function CasesScreen({ employers, loading, onOpen, onCreateNew, onDelete,
 
   return (
     <div>
-      <DemoBanner isPersistent={isPersistent} />
+      <DemoBanner />
 
       <div className="flex items-end justify-between mb-6 gap-6 flex-wrap">
         <div>
@@ -84,7 +84,7 @@ export function CasesScreen({ employers, loading, onOpen, onCreateNew, onDelete,
 
 const DEMO_BANNER_DISMISS_KEY = 'offplan_engine:demo_banner_dismissed';
 
-function DemoBanner({ isPersistent }) {
+function DemoBanner() {
   // Persist dismissal across reloads. Wrapped in try/catch because
   // localStorage can throw in sandboxed contexts (in-memory storage path).
   const [collapsed, setCollapsed] = useState(() => {
@@ -101,12 +101,10 @@ function DemoBanner({ isPersistent }) {
       <AlertTriangle size={18} className="text-amber-700 shrink-0 mt-0.5" />
       <div className="flex-1 text-sm">
         <div className="font-medium text-amber-900 mb-1">
-          Static demo · No backend · Not for PHI
+          Not for PHI
         </div>
         <div className="text-amber-800 leading-relaxed">
-          This is the OffPlan Reclassification Engine reference implementation running entirely in your browser. All calculation, classification, and persistence happens client-side
-          {isPersistent ? " using your browser's localStorage" : " in-memory only (your browser blocked localStorage)"}.
-          {" "}Do not load real protected health information. The bundled demo cases use synthetic and benchmark-derived data only. Production deployment requires the backend calculation service, multi-tenant database, and SOC 2 / HIPAA controls described in the Architecture &amp; Security Specification v1.0.
+          Reference build — no HIPAA / SOC 2 controls. Do not load real protected health information; bundled demo cases use synthetic data only.
         </div>
       </div>
       <button

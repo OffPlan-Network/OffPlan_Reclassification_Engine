@@ -497,7 +497,6 @@ export default function App() {
             onDelete={deleteEmployer}
             onLoadDemo={loadDemoCase}
             onResetAll={resetAllData}
-            isPersistent={db.isPersistent()}
           />
         )}
         {screen === SCREENS.OVERVIEW && (
