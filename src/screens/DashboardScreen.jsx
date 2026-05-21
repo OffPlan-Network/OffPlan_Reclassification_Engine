@@ -156,88 +156,18 @@ export function DashboardScreen({ employer, scenario, result, classifiedClaims, 
         )}
       </div>
 
-      <div className="bg-white border border-stone-200 rounded-lg p-6 mb-6">
-        <div className="flex items-start justify-between mb-4">
-          <div>
-            <h3 className="font-medium text-stone-900 mb-1">Baseline Comparison</h3>
-            <p className="text-xs text-stone-500 max-w-2xl leading-relaxed">
-              Savings are calculated against current total healthcare spend, not claims-only spend.
-              Historical claims drive the reclassification model; total spend drives the savings comparison.
-            </p>
-          </div>
-          {employer?.current_funding_model && (
-            <div className="text-right text-[11px] text-stone-500">
-              <div className="uppercase tracking-wider">Funding Model</div>
-              <div className="font-medium text-stone-700 normal-case">
-                {employer.plan_type}{employer.baseline_confidence ? ` · ${employer.baseline_confidence} confidence` : ""}
-              </div>
-            </div>
-          )}
-        </div>
+      <SpendComparison
+        employer={employer}
+        scenario={scenario}
+        lives={lives}
+        hasValidBaseline={hasValidBaseline}
+        savingsBaseline={savingsBaseline}
+        historicalClaims={a.historical_claims}
+        totalOffPlanAnnual={totalOffPlanAnnual}
+        totalOffPlanPEPM={totalOffPlanPEPM}
+        recommendedPEPM={recommendedPEPM}
+      />
 
-        <div className="border border-stone-200 rounded overflow-hidden overflow-x-auto">
-          <table className="w-full text-sm min-w-[560px]">
-            <thead>
-              <tr className="border-b border-stone-200 bg-stone-50 text-[10px] uppercase tracking-wider text-stone-500">
-                <th className="text-left px-4 py-2.5 font-medium">Metric</th>
-                <th className="text-left px-4 py-2.5 font-medium">Purpose</th>
-                <th className="text-right px-4 py-2.5 font-medium">Annual</th>
-                <th className="text-right px-4 py-2.5 font-medium">PEPM</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr className="border-b border-stone-100">
-                <td className="px-4 py-3 font-medium text-stone-900">Historical Claims</td>
-                <td className="px-4 py-3 text-stone-600">Reclassification modeling</td>
-                <td className="px-4 py-3 text-right font-mono num">{fmtUSD(a.historical_claims)}</td>
-                <td className="px-4 py-3 text-right font-mono num text-stone-500">{fmtUSD(a.historical_claims / lives / 12, 2)}</td>
-              </tr>
-              {hasValidBaseline ? (
-                <>
-                  <tr className="border-b border-stone-100 bg-stone-50/40">
-                    <td className="px-4 py-3 font-medium text-stone-900">Current Total Healthcare Spend</td>
-                    <td className="px-4 py-3 text-stone-600">Savings comparison baseline</td>
-                    <td className="px-4 py-3 text-right font-mono num">{fmtUSD(savingsBaseline)}</td>
-                    <td className="px-4 py-3 text-right font-mono num text-stone-500">{fmtUSD(savingsBaseline / lives / 12, 2)}</td>
-                  </tr>
-                  <tr className="border-b border-stone-100">
-                    <td className="px-4 py-3 font-medium text-stone-900">OffPlan Total Stack</td>
-                    <td className="px-4 py-3 text-stone-600">New model</td>
-                    <td className="px-4 py-3 text-right font-mono num">{fmtUSD(totalOffPlanAnnual)}</td>
-                    <td className="px-4 py-3 text-right font-mono num text-stone-500">{fmtUSD(totalOffPlanPEPM, 2)}</td>
-                  </tr>
-                  <tr className="bg-emerald-50/40">
-                    <td className="px-4 py-3 font-semibold text-emerald-900">Net Savings</td>
-                    <td className="px-4 py-3 text-emerald-800">Total spend minus OffPlan stack</td>
-                    <td className={`px-4 py-3 text-right font-mono num font-semibold ${annualSavings >= 0 ? "text-emerald-800" : "text-rose-700"}`}>
-                      {fmtUSD(annualSavings)}
-                    </td>
-                    <td className={`px-4 py-3 text-right font-mono num ${annualSavings >= 0 ? "text-emerald-700" : "text-rose-700"}`}>
-                      {fmtPct(savingsPct)}
-                    </td>
-                  </tr>
-                </>
-              ) : (
-                <tr className="border-b border-stone-100">
-                  <td className="px-4 py-3 font-medium text-stone-900">OffPlan Total Stack</td>
-                  <td className="px-4 py-3 text-stone-600">New model</td>
-                  <td className="px-4 py-3 text-right font-mono num">{fmtUSD(totalOffPlanAnnual)}</td>
-                  <td className="px-4 py-3 text-right font-mono num text-stone-500">{fmtUSD(totalOffPlanPEPM, 2)}</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {!hasValidBaseline && (
-          <div className="mt-3 bg-rose-50 border border-rose-200 rounded p-3 text-xs text-rose-900 flex gap-2">
-            <AlertTriangle size={14} className="text-rose-600 flex-shrink-0 mt-0.5" />
-            <div>
-              <strong>Current Total Healthcare Spend is required before savings can be calculated.</strong> Historical claims are used only for reclassification modeling and cannot be used as the savings baseline. Add Current Total Healthcare Spend in Setup to enable savings calculations and PDF export.
-            </div>
-          </div>
-        )}
-      </div>
 
       <div className="bg-white border border-stone-200 rounded-lg p-6 mb-6">
         <h3 className="font-medium text-stone-900 mb-1">Where the historical claims went</h3>
@@ -613,6 +543,273 @@ function ScenarioToggle({ scenario, onScenarioChange }) {
       </div>
     </div>
   );
+}
+
+// Funding-model-aware copy. Two display modes:
+//   - "bundled": FI and LF — single historical line representing the actual
+//     monthly check (Carrier Premium / Level-Funded Contribution). The
+//     synthetic claims-vs-load split is offered as an expandable disclosure
+//     for context, NOT as a separate row, because it doesn't match cash flow.
+//   - "itemized": SF (and Unsure as default) — historical splits into Claims
+//     + Premiums & Admin because these are genuinely separate checks to
+//     different vendors.
+const FUNDING_DISPLAY = {
+  fully_insured: {
+    mode: 'bundled',
+    bundledLabel: 'Carrier Premium',
+    bundledDetail: 'Single annual premium paid to the carrier. The carrier internally allocates this across claims, admin, UM/CM, stop-loss reinsurance, and margin — but the employer writes one check.',
+    note: 'Fully insured plans bundle everything into premium. Component-level Δ is meaningful only on the OffPlan side; the headline savings number is the Total row delta.',
+    insideTitle: 'What is inside that premium?',
+  },
+  level_funded: {
+    mode: 'bundled',
+    bundledLabel: 'Level-Funded Contribution',
+    bundledDetail: 'Single monthly level-funded contribution. Bundles expected claims fund + stop-loss + TPA/admin + carrier margin. Surplus refund (if any) on under-run claims is not modeled in this comparison.',
+    note: 'Level-funded plans look like a single check to the employer each month even though the carrier internally allocates claims fund vs stop-loss vs admin. Component-level Δ is meaningful only on the OffPlan side.',
+    insideTitle: 'What is inside that contribution?',
+  },
+  self_funded: {
+    mode: 'itemized',
+    histClaimsDetail: 'Pass-through claims paid directly by the self-funded plan (via the TPA).',
+    histLoadDetail: 'Stop-loss premium + TPA + network access + PBM admin + broker fees. Separate vendors, separate checks.',
+    note: 'Self-funded employers genuinely pay claims and overhead as separate line items — the historical decomposition mirrors actual cash flow.',
+  },
+  unsure: {
+    mode: 'itemized',
+    histClaimsDetail: 'Historical 12-month claims spend used for reclassification modeling.',
+    histLoadDetail: 'Non-claims portion of current total healthcare spend — treated as bundled insurer / TPA overhead.',
+    note: 'Funding model not specified — defaulting to itemized historical display. Set the funding model in Setup for a more accurate cash-flow comparison.',
+  },
+};
+
+function SpendComparison({ employer, scenario, lives, hasValidBaseline, savingsBaseline, historicalClaims, totalOffPlanAnnual, totalOffPlanPEPM, recommendedPEPM }) {
+  const fundingModel = employer?.current_funding_model || 'unsure';
+  const display = FUNDING_DISPLAY[fundingModel] || FUNDING_DISPLAY.unsure;
+  const [showInside, setShowInside] = useState(false);
+
+  // Synthetic decomposition — meaningful as context for bundled-premium
+  // funding models, used directly as row values for itemized funding models.
+  const histClaims = Math.max(0, Number(historicalClaims) || 0);
+  const histLoad = hasValidBaseline ? Math.max(0, savingsBaseline - histClaims) : 0;
+
+  // OffPlan decomposition into 3 buckets — same for all funding models.
+  //   1. Claims = residual fund (deprecated v3.0/v3.1 placeholder for the
+  //      claims pass-through; production replaces with stochastic MRL).
+  //   2. DPC / Membership = OFFPLAN_MEMBERSHIP_PEPM × lives × 12.
+  //   3. Premiums & Admin = stop-loss + accident/indemnity + TPA + PBM +
+  //      Network + UM/CM, annualized.
+  const offplanClaimsAnnual = recommendedPEPM * lives * 12;
+  const offplanDpcAnnual = OFFPLAN_MEMBERSHIP_PEPM * lives * 12;
+  const offplanPremiumsPEPM =
+    scenario.stop_loss_pepm + ACCIDENT_INDEMNITY_PEPM +
+    TPA_PEPM + PBM_ADMIN_PEPM + NETWORK_ACCESS_PEPM + UM_CM_PEPM;
+  const offplanPremiumsAnnual = offplanPremiumsPEPM * lives * 12;
+  const offplanDetail = {
+    claims: `Residual fund (variable) — residual PEPM × ${scenario.risk_margin.toFixed(2)}× risk margin. Deprecated v3.0/v3.1 placeholder; production replaces with stochastic MRL.`,
+    dpc: `OffPlan membership at $${OFFPLAN_MEMBERSHIP_PEPM}/PEPM. Absorbs primary care, prevention, basic labs.`,
+    premiums: `Stop-loss $${scenario.stop_loss_pepm} + Accident/Indemnity $${ACCIDENT_INDEMNITY_PEPM} + TPA $${TPA_PEPM} + PBM $${PBM_ADMIN_PEPM} + Network $${NETWORK_ACCESS_PEPM} + UM/CM $${UM_CM_PEPM} = $${offplanPremiumsPEPM.toFixed(2)} PEPM.`,
+  };
+
+  // Build rows. Bundled funding models get one historical-only row plus
+  // three OffPlan-only rows. Itemized funding models get three matched
+  // historical+OffPlan rows.
+  const rows = display.mode === 'bundled'
+    ? [
+        {
+          key: 'bundled',
+          label: display.bundledLabel,
+          hist: savingsBaseline,
+          offplan: null,
+          histDetail: display.bundledDetail,
+          offplanDetail: 'Replaced by the three OffPlan line items below.',
+        },
+        { key: 'claims',   label: 'Claims',           hist: null, offplan: offplanClaimsAnnual,   histDetail: 'Bundled in the line above.', offplanDetail: offplanDetail.claims },
+        { key: 'dpc',      label: 'DPC / Membership', hist: null, offplan: offplanDpcAnnual,      histDetail: 'No equivalent — DPC is the OffPlan-specific layer.', offplanDetail: offplanDetail.dpc },
+        { key: 'premiums', label: 'Premiums & Admin', hist: null, offplan: offplanPremiumsAnnual, histDetail: 'Bundled in the line above.', offplanDetail: offplanDetail.premiums },
+      ]
+    : [
+        { key: 'claims',   label: 'Claims',           hist: histClaims, offplan: offplanClaimsAnnual,   histDetail: display.histClaimsDetail, offplanDetail: offplanDetail.claims },
+        { key: 'dpc',      label: 'DPC / Membership', hist: null,        offplan: offplanDpcAnnual,      histDetail: 'No equivalent — DPC is the OffPlan-specific layer.', offplanDetail: offplanDetail.dpc },
+        { key: 'premiums', label: 'Premiums & Admin', hist: histLoad,    offplan: offplanPremiumsAnnual, histDetail: display.histLoadDetail, offplanDetail: offplanDetail.premiums },
+      ];
+
+  const totalDelta = hasValidBaseline ? totalOffPlanAnnual - savingsBaseline : null;
+  const savingsPct = hasValidBaseline && savingsBaseline > 0 ? (savingsBaseline - totalOffPlanAnnual) / savingsBaseline : null;
+
+  return (
+    <div className="bg-white border border-stone-200 rounded-lg p-6 mb-6">
+      {/* Header: title + funding model badge */}
+      <div className="flex items-start justify-between mb-4 flex-wrap gap-3">
+        <div>
+          <h3 className="font-medium text-stone-900 mb-1">Spend Comparison &amp; Composition</h3>
+          <p className="text-xs text-stone-500 max-w-2xl leading-relaxed">
+            {hasValidBaseline
+              ? (display.mode === 'bundled'
+                  ? `Historical side shows the actual cash outflow — one bundled payment to the carrier. OffPlan side splits into the three real line items (claims fund, DPC membership, premiums & admin) since those are separate monthly payments to separate vendors.`
+                  : `Side-by-side decomposition of cash outflows. Self-funded employers pay claims and overhead as genuinely separate line items.`)
+              : `Add Current Total Healthcare Spend in Setup to see side-by-side savings. The OffPlan stack composition is shown below regardless.`}
+          </p>
+        </div>
+        {employer?.plan_type && (
+          <div className="text-right text-[11px] text-stone-500">
+            <div className="uppercase tracking-wider">Funding Model</div>
+            <div className="font-medium text-stone-700 normal-case">
+              {employer.plan_type}{employer.baseline_confidence ? ` · ${employer.baseline_confidence} confidence` : ''}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Modeling-input memo: Historical Claims is informational, not in savings calc */}
+      <div className="bg-stone-50 border border-stone-200 rounded px-3 py-2 mb-4 flex items-center gap-3 flex-wrap text-xs">
+        <span className="text-[10px] uppercase tracking-wider text-stone-500 font-semibold whitespace-nowrap">Modeling input</span>
+        <span className="text-stone-700 whitespace-nowrap">Historical Claims (12 mo):</span>
+        <span className="font-mono num text-stone-900 font-semibold">{fmtUSD(histClaims)}</span>
+        <span className="text-stone-500 font-mono num">· {fmtUSD(histClaims / lives / 12, 2)} PEPM</span>
+        <span className="text-stone-500 italic">— used for reclassification only, not the savings calc</span>
+      </div>
+
+      {/* Main comparison table */}
+      <div className="border border-stone-200 rounded overflow-hidden overflow-x-auto">
+        <table className="w-full text-sm min-w-[640px]">
+          <thead>
+            <tr className="border-b border-stone-200 bg-stone-50 text-[10px] uppercase tracking-wider text-stone-500">
+              <th className="text-left px-4 py-2.5 font-medium">Component</th>
+              <th className="text-right px-4 py-2.5 font-medium">Historical</th>
+              <th className="text-right px-4 py-2.5 font-medium">OffPlan</th>
+              <th className="text-right px-4 py-2.5 font-medium">Δ</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => {
+              // Δ only meaningful when both sides have values AND we have a
+              // valid baseline. For one-sided rows or no-baseline state, show "—".
+              const bothSides = hasValidBaseline && r.hist != null && r.offplan != null;
+              const delta = bothSides ? r.offplan - r.hist : null;
+              const deltaClass = delta == null ? 'text-stone-300' : delta < 0 ? 'text-emerald-700' : delta > 0 ? 'text-rose-700' : 'text-stone-500';
+              const showHist = hasValidBaseline && r.hist != null;
+              return (
+                <tr key={r.key} className="border-b border-stone-100 align-top">
+                  <td className="px-4 py-3">
+                    <div className="font-medium text-stone-900">{r.label}</div>
+                    <div className="text-[11px] text-stone-500 mt-1 leading-relaxed">
+                      {hasValidBaseline && (
+                        <div><span className="font-semibold text-stone-600">Historical:</span> {r.histDetail}</div>
+                      )}
+                      <div className={hasValidBaseline ? 'mt-0.5' : ''}><span className="font-semibold text-stone-600">OffPlan:</span> {r.offplanDetail}</div>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 text-right font-mono num">
+                    {showHist ? fmtUSD(r.hist) : <span className="text-stone-300">—</span>}
+                  </td>
+                  <td className="px-4 py-3 text-right font-mono num">
+                    {r.offplan == null ? <span className="text-stone-300">—</span> : fmtUSD(r.offplan)}
+                  </td>
+                  <td className={`px-4 py-3 text-right font-mono num ${deltaClass}`}>
+                    {delta == null ? '—' : fmtDelta(delta)}
+                  </td>
+                </tr>
+              );
+            })}
+            <tr className="bg-stone-50 font-semibold">
+              <td className="px-4 py-3 text-stone-900">
+                <div>Total</div>
+                <div className="text-[11px] text-stone-500 font-normal mt-0.5">
+                  {hasValidBaseline ? 'Current Total Spend vs OffPlan Stack · Δ = net savings' : 'OffPlan stack only — baseline not entered'}
+                </div>
+              </td>
+              <td className="px-4 py-3 text-right font-mono num">
+                {hasValidBaseline ? fmtUSD(savingsBaseline) : <span className="text-stone-300">—</span>}
+              </td>
+              <td className="px-4 py-3 text-right font-mono num">
+                <div>{fmtUSD(totalOffPlanAnnual)}</div>
+                <div className="text-[11px] text-stone-500 font-normal font-mono num">{fmtUSD(totalOffPlanPEPM, 2)} PEPM</div>
+              </td>
+              <td className={`px-4 py-3 text-right font-mono num ${totalDelta == null ? 'text-stone-300' : totalDelta <= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                {totalDelta == null ? '—' : (
+                  <>
+                    <div>{fmtDelta(totalDelta)}</div>
+                    {savingsPct != null && (
+                      <div className="text-[11px] font-normal">{fmtPct(savingsPct)}</div>
+                    )}
+                  </>
+                )}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {!hasValidBaseline && (
+        <div className="mt-3 bg-rose-50 border border-rose-200 rounded p-3 text-xs text-rose-900 flex gap-2">
+          <AlertTriangle size={14} className="text-rose-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <strong>Current Total Healthcare Spend is required before savings can be calculated.</strong> Historical claims are used only for reclassification modeling and cannot be used as the savings baseline. Add Current Total Healthcare Spend in Setup to enable savings calculations and PDF export.
+          </div>
+        </div>
+      )}
+
+      {hasValidBaseline && display.mode === 'bundled' && (
+        <div className="mt-4 border border-stone-200 rounded">
+          <button
+            onClick={() => setShowInside((s) => !s)}
+            className="w-full flex items-center gap-2 px-4 py-2.5 text-left hover:bg-stone-50 transition rounded-t text-sm"
+          >
+            {showInside ? <ChevronDown size={14} className="text-stone-500" /> : <ChevronRight size={14} className="text-stone-500" />}
+            <span className="font-medium text-stone-900">{display.insideTitle}</span>
+            <span className="text-xs text-stone-500 normal-case font-normal ml-auto">
+              Synthetic breakdown — not separate cash flows
+            </span>
+          </button>
+          {showInside && (
+            <div className="px-4 pb-4 pt-1 border-t border-stone-200 text-xs text-stone-600 leading-relaxed space-y-3">
+              <p>
+                The carrier prices the {display.bundledLabel.toLowerCase()} to cover their expected claims plus admin, UM/CM, stop-loss reinsurance, and margin. The employer writes one check; the breakdown below is the carrier's internal allocation, reconstructed from the historical claims figure entered in Setup.
+              </p>
+              <div className="border border-stone-200 rounded overflow-hidden">
+                <table className="w-full text-xs">
+                  <tbody>
+                    <tr className="border-b border-stone-100">
+                      <td className="px-3 py-2 text-stone-700">Carrier-paid claims (utilization)</td>
+                      <td className="px-3 py-2 text-right font-mono num">{fmtUSD(histClaims)}</td>
+                      <td className="px-3 py-2 text-right text-stone-500 font-mono num w-20">{savingsBaseline > 0 ? fmtPct(histClaims / savingsBaseline) : '—'}</td>
+                    </tr>
+                    <tr className="border-b border-stone-100">
+                      <td className="px-3 py-2 text-stone-700">Carrier overhead + margin (load)</td>
+                      <td className="px-3 py-2 text-right font-mono num">{fmtUSD(histLoad)}</td>
+                      <td className="px-3 py-2 text-right text-stone-500 font-mono num">{savingsBaseline > 0 ? fmtPct(histLoad / savingsBaseline) : '—'}</td>
+                    </tr>
+                    <tr className="bg-stone-50 font-semibold">
+                      <td className="px-3 py-2 text-stone-900">Bundled {display.bundledLabel.toLowerCase()}</td>
+                      <td className="px-3 py-2 text-right font-mono num">{fmtUSD(savingsBaseline)}</td>
+                      <td className="px-3 py-2 text-right font-mono num text-stone-500">100%</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <p className="text-stone-500">
+                Going OffPlan replaces the bundled premium with the three OffPlan line items above. Most of the savings come from eliminating the carrier load — the OffPlan stack replaces it with transparently-priced DPC, stop-loss, indemnity, and plan admin from separate vendors.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {hasValidBaseline && (
+        <div className="mt-3 text-[11px] text-stone-500 leading-relaxed">
+          <strong>Funding-model note:</strong> {display.note}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Signed currency formatter for deltas. Positive values get a leading "+";
+// fmtUSD already renders negatives with a minus sign.
+function fmtDelta(v) {
+  const n = Number(v) || 0;
+  if (n > 0) return `+${fmtUSD(n)}`;
+  return fmtUSD(n);
 }
 
 function RatioCard({ label, value, sub }) {
