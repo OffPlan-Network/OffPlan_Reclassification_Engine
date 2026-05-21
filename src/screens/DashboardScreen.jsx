@@ -661,18 +661,18 @@ function SpendComparison({ employer, scenario, lives, hasValidBaseline, savingsB
   const totalDelta = hasValidBaseline ? totalOffPlanAnnual - savingsBaseline : null;
   const savingsPct = hasValidBaseline && savingsBaseline > 0 ? (savingsBaseline - totalOffPlanAnnual) / savingsBaseline : null;
 
+  const netSavings = hasValidBaseline ? savingsBaseline - totalOffPlanAnnual : null;
+
   return (
     <div className="bg-white border border-stone-200 rounded-lg p-6 mb-6">
       {/* Header: title + funding model badge */}
-      <div className="flex items-start justify-between mb-4 flex-wrap gap-3">
+      <div className="flex items-start justify-between mb-5 flex-wrap gap-3">
         <div>
-          <h3 className="font-medium text-stone-900 mb-1">Spend Comparison &amp; Composition</h3>
+          <h3 className="font-medium text-stone-900 mb-1">Historical Spend and Projected Savings</h3>
           <p className="text-xs text-stone-500 max-w-2xl leading-relaxed">
             {hasValidBaseline
-              ? (display.mode === 'bundled'
-                  ? `Historical side shows the actual cash outflow — one bundled payment to the carrier. OffPlan side splits into the three real line items (claims fund, DPC membership, premiums & admin) since those are separate monthly payments to separate vendors.`
-                  : `Side-by-side decomposition of cash outflows. Self-funded employers pay claims and overhead as genuinely separate line items.`)
-              : `Add Current Total Healthcare Spend in Setup to see side-by-side savings. The OffPlan stack composition is shown below regardless.`}
+              ? `Current ${employer?.plan_type || 'plan'} cost vs the OffPlan stack. Component breakdown below.`
+              : `Add Current Total Healthcare Spend in Setup to compute savings. The OffPlan composition is shown regardless.`}
           </p>
         </div>
         {employer?.plan_type && (
@@ -685,80 +685,74 @@ function SpendComparison({ employer, scenario, lives, hasValidBaseline, savingsB
         )}
       </div>
 
-      {/* Modeling-input memo: Historical Claims is informational, not in savings calc */}
-      <div className="bg-stone-50 border border-stone-200 rounded px-3 py-2 mb-4 flex items-center gap-3 flex-wrap text-xs">
-        <span className="text-[10px] uppercase tracking-wider text-stone-500 font-semibold whitespace-nowrap">Modeling input</span>
-        <span className="text-stone-700 whitespace-nowrap">Historical Claims (12 mo):</span>
-        <span className="font-mono num text-stone-900 font-semibold">{fmtUSD(histClaims)}</span>
-        <span className="text-stone-500 font-mono num">· {fmtUSD(histClaims / lives / 12, 2)} PEPM</span>
-        <span className="text-stone-500 italic">— used for reclassification only, not the savings calc</span>
+      {/* Headline stat strip — three numbers a reader should grasp in one glance. */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+        <HeadlineStat
+          label="Historical (current)"
+          value={hasValidBaseline ? fmtUSD(savingsBaseline) : '—'}
+          sub={hasValidBaseline ? `${fmtUSD(savingsBaseline / lives / 12, 2)} PEPM` : 'Baseline not entered'}
+        />
+        <HeadlineStat
+          label="OffPlan (new model)"
+          value={fmtUSD(totalOffPlanAnnual)}
+          sub={`${fmtUSD(totalOffPlanPEPM, 2)} PEPM`}
+        />
+        <HeadlineStat
+          label="Net Savings"
+          value={netSavings == null ? '—' : fmtDelta(-netSavings)}
+          sub={savingsPct != null ? `${fmtPct(savingsPct)} reduction` : 'Awaiting baseline'}
+          accent={netSavings == null ? 'neutral' : netSavings >= 0 ? 'emerald' : 'rose'}
+        />
       </div>
 
-      {/* Main comparison table */}
+      {/* Modeling-input memo — kept compact, single line. */}
+      <div className="text-[11px] text-stone-500 mb-4 leading-relaxed">
+        <span className="text-stone-700 font-medium">Historical Claims (12 mo):</span>{' '}
+        <span className="font-mono num text-stone-800">{fmtUSD(histClaims)}</span>
+        <span className="text-stone-400 font-mono num"> · {fmtUSD(histClaims / lives / 12, 2)} PEPM</span>
+        <span className="text-stone-400"> — drives reclassification modeling, not the savings calc above.</span>
+      </div>
+
+      {/* Compact component breakdown — row sub-descriptions removed to tighten. */}
       <div className="border border-stone-200 rounded overflow-hidden overflow-x-auto">
-        <table className="w-full text-sm min-w-[640px]">
+        <table className="w-full text-sm min-w-[560px]">
           <thead>
             <tr className="border-b border-stone-200 bg-stone-50 text-[10px] uppercase tracking-wider text-stone-500">
-              <th className="text-left px-4 py-2.5 font-medium">Component</th>
-              <th className="text-right px-4 py-2.5 font-medium">Historical</th>
-              <th className="text-right px-4 py-2.5 font-medium">OffPlan</th>
-              <th className="text-right px-4 py-2.5 font-medium">Δ</th>
+              <th className="text-left px-4 py-2 font-medium">Component</th>
+              <th className="text-right px-4 py-2 font-medium">Historical</th>
+              <th className="text-right px-4 py-2 font-medium">OffPlan</th>
+              <th className="text-right px-4 py-2 font-medium">Δ</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((r) => {
-              // Δ only meaningful when both sides have values AND we have a
-              // valid baseline. For one-sided rows or no-baseline state, show "—".
               const bothSides = hasValidBaseline && r.hist != null && r.offplan != null;
               const delta = bothSides ? r.offplan - r.hist : null;
               const deltaClass = delta == null ? 'text-stone-300' : delta < 0 ? 'text-emerald-700' : delta > 0 ? 'text-rose-700' : 'text-stone-500';
               const showHist = hasValidBaseline && r.hist != null;
               return (
-                <tr key={r.key} className="border-b border-stone-100 align-top">
-                  <td className="px-4 py-3">
-                    <div className="font-medium text-stone-900">{r.label}</div>
-                    <div className="text-[11px] text-stone-500 mt-1 leading-relaxed">
-                      {hasValidBaseline && (
-                        <div><span className="font-semibold text-stone-600">Historical:</span> {r.histDetail}</div>
-                      )}
-                      <div className={hasValidBaseline ? 'mt-0.5' : ''}><span className="font-semibold text-stone-600">OffPlan:</span> {r.offplanDetail}</div>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-right font-mono num">
+                <tr key={r.key} className="border-b border-stone-100">
+                  <td className="px-4 py-2 font-medium text-stone-900">{r.label}</td>
+                  <td className="px-4 py-2 text-right font-mono num">
                     {showHist ? fmtUSD(r.hist) : <span className="text-stone-300">—</span>}
                   </td>
-                  <td className="px-4 py-3 text-right font-mono num">
+                  <td className="px-4 py-2 text-right font-mono num">
                     {r.offplan == null ? <span className="text-stone-300">—</span> : fmtUSD(r.offplan)}
                   </td>
-                  <td className={`px-4 py-3 text-right font-mono num ${deltaClass}`}>
+                  <td className={`px-4 py-2 text-right font-mono num ${deltaClass}`}>
                     {delta == null ? '—' : fmtDelta(delta)}
                   </td>
                 </tr>
               );
             })}
-            <tr className="bg-stone-50 font-semibold">
-              <td className="px-4 py-3 text-stone-900">
-                <div>Total</div>
-                <div className="text-[11px] text-stone-500 font-normal mt-0.5">
-                  {hasValidBaseline ? 'Current Total Spend vs OffPlan Stack · Δ = net savings' : 'OffPlan stack only — baseline not entered'}
-                </div>
-              </td>
-              <td className="px-4 py-3 text-right font-mono num">
+            <tr className="bg-stone-50 font-semibold border-t-2 border-stone-200">
+              <td className="px-4 py-2 text-stone-900">Total</td>
+              <td className="px-4 py-2 text-right font-mono num">
                 {hasValidBaseline ? fmtUSD(savingsBaseline) : <span className="text-stone-300">—</span>}
               </td>
-              <td className="px-4 py-3 text-right font-mono num">
-                <div>{fmtUSD(totalOffPlanAnnual)}</div>
-                <div className="text-[11px] text-stone-500 font-normal font-mono num">{fmtUSD(totalOffPlanPEPM, 2)} PEPM</div>
-              </td>
-              <td className={`px-4 py-3 text-right font-mono num ${totalDelta == null ? 'text-stone-300' : totalDelta <= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
-                {totalDelta == null ? '—' : (
-                  <>
-                    <div>{fmtDelta(totalDelta)}</div>
-                    {savingsPct != null && (
-                      <div className="text-[11px] font-normal">{fmtPct(savingsPct)}</div>
-                    )}
-                  </>
-                )}
+              <td className="px-4 py-2 text-right font-mono num">{fmtUSD(totalOffPlanAnnual)}</td>
+              <td className={`px-4 py-2 text-right font-mono num ${totalDelta == null ? 'text-stone-300' : totalDelta <= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
+                {totalDelta == null ? '—' : fmtDelta(totalDelta)}
               </td>
             </tr>
           </tbody>
@@ -835,6 +829,25 @@ function fmtDelta(v) {
   const n = Number(v) || 0;
   if (n > 0) return `+${fmtUSD(n)}`;
   return fmtUSD(n);
+}
+
+// Big-number stat card used in the headline strip on the SpendComparison
+// section. Accent options: 'emerald' (positive savings), 'rose' (cost
+// increase), 'neutral' (default).
+function HeadlineStat({ label, value, sub, accent = 'neutral' }) {
+  const accents = {
+    neutral: { box: 'bg-stone-50 border-stone-200', label: 'text-stone-500', value: 'text-stone-900', sub: 'text-stone-500' },
+    emerald: { box: 'bg-emerald-50 border-emerald-200', label: 'text-emerald-700', value: 'text-emerald-900', sub: 'text-emerald-700' },
+    rose:    { box: 'bg-rose-50 border-rose-200',       label: 'text-rose-700',    value: 'text-rose-900',    sub: 'text-rose-700' },
+  };
+  const a = accents[accent] || accents.neutral;
+  return (
+    <div className={`rounded-lg border p-4 ${a.box}`}>
+      <div className={`text-[10px] uppercase tracking-wider font-semibold mb-1 ${a.label}`}>{label}</div>
+      <div className={`font-display text-3xl num leading-tight ${a.value}`}>{value}</div>
+      {sub && <div className={`text-xs mt-1 ${a.sub}`}>{sub}</div>}
+    </div>
+  );
 }
 
 function RatioCard({ label, value, sub }) {
